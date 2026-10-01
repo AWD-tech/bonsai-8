@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+.Rhistory
+
+# Zephyr / west build output
+build/
+build_*/
+*.elf
+*.map
+zephyr/
+
+.build-env/
+__pycache__/
+
+*.log
+dist/
+prepared-library/
+hardware-tests/*.bin
+
+# Local test evidence and one-device recovery helpers are kept on this Mac.
+hardware-tests/
+tmp/
+.herenow/
+.env
+.env.*
+*.wav
+*.mp3
+*.m4a
+*.flac

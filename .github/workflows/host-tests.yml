@@ -1,0 +1,23 @@
+name: Host tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m venv .build-env/python
+          .build-env/python/bin/pip install pyserial==3.5
+      - name: Run C sanitizers and transfer tests
+        run: ./tools/test.sh
