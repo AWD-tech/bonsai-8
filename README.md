@@ -73,7 +73,7 @@ Each song's stems start together; shorter stems receive silence to match the lon
 ## Hardware test
 
 1. Back up the current firmware/song library using the tools for the firmware currently on your unit. Keep a known-good recovery binary.
-2. Open [Solderless](https://solderless.engineering), enter the SP-1 firmware utility, connect USB, hold Track 1 + Track 4, and select **`dist/sp1-dual-deck-0.2.bin`**. The first unit has already been flashed; this step is for installation or recovery on another session/device.
+2. Open [Solderless](https://solderless.engineering), enter the SP-1 firmware utility, connect USB, hold Track 1 + Track 4, and select the matching **`dist/sp1-dual-deck-0.3.1.bin`** hardware-test candidate. The current test unit is already on 0.3.1; do not flash again just to use the manual or website. See the recorded playback limitations before installing on another device.
 3. Replug, then hold FUNCTION 1.5 seconds. First test power-off and Track 1 + Track 4 recovery before initializing or uploading audio.
 4. Check `status`: storage, reset reason, fault marker, CRC/read errors and the audio deadline are reported. A normal no-fault marker is `4294967295`.
 5. Load two different songs with four recognizable stems each. Test each deck separately at low volume, then both at 1×. Switch A/B and confirm pickup, mute/solo and pause affect only the chosen deck. Test headphones and speaker auto-mute.
