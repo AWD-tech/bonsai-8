@@ -12,7 +12,7 @@ Private development repository: [AWD-tech/sp1-dual-deck](https://github.com/AWD-
 
 This manual describes the custom **SP-1 Dual Deck** firmware, not the original SP-1 firmware or the upstream Tape Looper controls. It covers the shared device controls in versions 0.2, 0.3 and the 0.3.1 candidate.
 
-**Installed version: 0.3.1.** The update completed on 30 September 2026. Runtime diagnostics identify 0.3.1, all four uploaded songs passed sampled post-update verification, and macOS now recognizes its stereo 48 kHz USB audio input. Audible browser capture is still being checked. Playback-buffer underruns have been recorded during use; two-deck performance needs further work. Changing repository files does not change the firmware on your player.
+**Installed version: 0.3.1.** The update completed on 30 September 2026. Runtime diagnostics identify 0.3.1, all four uploaded songs passed sampled post-update verification, and macOS now recognizes its stereo 48 kHz USB audio input. The website now opens the SP-1 input and displays a changing live waveform; listening quality has not been confirmed. Playback-buffer underruns have been recorded during use; two-deck performance needs further work. Changing repository files does not change the firmware on your player.
 
 The firmware loads two songs into **Deck A** and **Deck B**. Each song has four stems. Both decks can play together, but the physical faders and track buttons control only the selected deck. Tapping FUNCTION switches which deck you control; the other keeps its current mix and transport state.
 
@@ -168,7 +168,7 @@ USB audio is the player's combined post-master stereo mix, not eight separate US
 
 Installed 0.3 connected successfully, negotiated mirroring and showed an advancing Deck A song timer. A complete side-by-side comparison of every physical button/light is still pending. The mirror deliberately buffers about 60 ms; USB and screen refresh add more delay. Screen brightness approximates physical LED brightness. Bootloader and disconnected/off states cannot provide a live mirror.
 
-On the tested Mac, 0.3 did not enumerate a usable USB audio input. After flashing 0.3.1, macOS recognizes **SP_1 Dual Deck**, two input channels at 48 kHz. Successful audible browser monitoring and sustained capture still require verification. Do not interpret a moving timer as proof that USB audio is working. No computer microphone is connected to playback as a substitute for the SP-1 input.
+On the tested Mac, 0.3 did not enumerate a usable USB audio input. After flashing 0.3.1, macOS recognizes **SP_1 Dual Deck**, two input channels at 48 kHz. The website now reports Live stereo mix from SP-1 at 48 kHz and displays a non-flat waveform during playback. Listening quality and sustained capture still require verification. Do not interpret a moving timer as proof that USB audio is working. No computer microphone is connected to playback as a substitute for the SP-1 input.
 
 The time readouts show each song's source position and reset at its loop boundary. Changing speed changes how quickly those positions advance. They are not beat markers. The live waveform, when capture works, describes the combined audio. Audio and visuals have different transport delays; sample-accurate alignment is not claimed.
 

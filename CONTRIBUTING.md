@@ -4,7 +4,7 @@ Development repository: https://github.com/AWD-tech/sp1-dual-deck (private).
 
 Keep `main` as the reviewed baseline. Create a branch for each change and open a pull request describing its behavior, validation and remaining hardware limits. An ordinary code PR should not flash a connected device or initialize its library as part of automated testing.
 
-Read `USER_MANUAL.md` for current user controls and `HARDWARE_TEST.md` for observations. The source contains the installed 0.3.1 hardware-test candidate. Runtime version, library preservation and macOS USB audio enumeration are verified. Audible USB monitoring and endurance still need testing.
+Read `USER_MANUAL.md` for current user controls and `HARDWARE_TEST.md` for observations. The source contains the installed 0.3.1 hardware-test candidate. Runtime version, library preservation and macOS USB audio enumeration are verified. The website now connects to the SP-1 audio input and displays its live waveform. Audible quality and endurance still need testing; playback-buffer underruns have been observed.
 
 Run `tools/test.sh` for the shared C engine, telemetry/capture sanitizers and Python transfer tests. Install pinned dependencies with `python3.11 tools/setup.py`; build with `tools/build.sh` and the Zephyr SDK identified in README.md. Automated host tests do not establish audio quality, USB compatibility or flash safety.
 
