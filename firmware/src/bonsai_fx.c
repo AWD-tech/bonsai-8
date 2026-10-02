@@ -1,0 +1,165 @@
+/* SPDX-License-Identifier: MIT */
+#include "bonsai_fx.h"
+#include <limits.h>
+#include <string.h>
+
+_Static_assert(sizeof(struct bonsai_fx) <= 18u * 1024u,
+               "Eight-stem effects exceed their fixed 18 KiB RAM budget");
+_Static_assert(ATOMIC_INT_LOCK_FREE == 2, "FX controls require lock-free atomics");
+
+void bonsai_fx_init(struct bonsai_fx *fx)
+{
+ memset(fx->voice, 0, sizeof(fx->voice));
+ for (unsigned i = 0; i < BONSAI_FX_VOICES; ++i)
+  atomic_init(&fx->config[i], 0);
+}
+bool bonsai_fx_reset_voice(struct bonsai_fx *fx, unsigned voice)
+{
+ if (voice >= BONSAI_FX_VOICES) return false;
+ struct bonsai_fx_voice *v = &fx->voice[voice];
+ v->type = v->requested_type = BONSAI_FX_NONE;
+ v->requested_amount = v->mix = v->alpha = v->clear_index = 0;
+ v->low_l = v->low_r = v->input_sum = 0;
+ v->wet_previous = v->wet_next = 0;
+ v->phase = 0; v->filter_seeded = false;
+ for (unsigned i = 0; i < 6; ++i) v->position[i] = 0;
+ return true;
+}
+bool bonsai_fx_set(struct bonsai_fx *fx, unsigned voice,
+                   enum bonsai_fx_type type, unsigned amount)
+{
+ if (voice >= BONSAI_FX_VOICES || type < BONSAI_FX_NONE ||
+     type > BONSAI_FX_REVERB) return false;
+ if (amount > 256u) amount = 256u;
+ if (type == BONSAI_FX_NONE) amount = 0;
+ atomic_store_explicit(&fx->config[voice], ((uint32_t)type << 16) | amount,
+                       memory_order_release);
+ return true;
+}
+void bonsai_fx_begin_block(struct bonsai_fx *fx)
+{
+ /* Q8 one-pole coefficients for logarithmic 18 kHz -> 160 Hz cutoff.
+  * Quantization makes the lowest setting approximately 151 Hz. */
+ static const uint16_t alpha[17] = {
+  232,212,187,159,132,107,85,66,51,39,30,22,17,13,9,7,5
+ };
+ for (unsigned i = 0; i < BONSAI_FX_VOICES; ++i) {
+  struct bonsai_fx_voice *v = &fx->voice[i];
+  uint32_t config = atomic_load_explicit(&fx->config[i], memory_order_acquire);
+  unsigned amount = config & 0xffffu;
+  v->requested_type = amount ? (uint8_t)(config >> 16) : BONSAI_FX_NONE;
+  v->requested_amount = (uint16_t)amount;
+  if (v->requested_type == BONSAI_FX_FILTER) {
+   unsigned index = amount / 16u, part = amount % 16u;
+   v->alpha = index == 16u ? alpha[16] :
+    (uint16_t)((alpha[index] * (16u - part) + alpha[index + 1u] * part) / 16u);
+  }
+ }
+}
+
+static int16_t saturate(int32_t sample, struct bonsai_fx_voice *v)
+{
+ if (sample > INT16_MAX) { ++v->clipped; return INT16_MAX; }
+ if (sample < INT16_MIN) { ++v->clipped; return INT16_MIN; }
+ return (int16_t)sample;
+}
+static int16_t limit(int32_t sample)
+{
+ return sample > INT16_MAX ? INT16_MAX : sample < INT16_MIN ? INT16_MIN :
+        (int16_t)sample;
+}
+static void activate(struct bonsai_fx_voice *v)
+{
+ v->type = v->requested_type;
+ v->mix = 0;
+ v->clear_index = 0;
+ v->input_sum = 0;
+ v->phase = 0;
+ v->wet_previous = v->wet_next = 0;
+ v->filter_seeded = false;
+ for (unsigned i = 0; i < 6; ++i) v->position[i] = 0;
+}
+static int32_t lowpass(int32_t previous, int16_t sample, uint16_t alpha)
+{
+ int32_t difference = (int32_t)sample * 256 - previous;
+ uint32_t magnitude = (uint32_t)(difference < 0 ? -difference : difference);
+ /* Q8 state retains quiet-signal precision. The unsigned product fits:
+  * maximum magnitude=65535*256, coefficient<=232. No 64-bit DSP. */
+ int32_t step = (int32_t)((magnitude * alpha) >> 8);
+ return previous + (difference < 0 ? -step : step);
+}
+static int16_t echo_tick(struct bonsai_fx_voice *v, int16_t input)
+{
+ unsigned p = v->position[0];
+ int16_t delayed = v->history[p];
+ v->history[p] = (int16_t)(((int32_t)input + delayed) / 2);
+ v->position[0] = p == 999u ? 0 : (uint16_t)(p + 1u);
+ return delayed;
+}
+static int16_t reverb_tick(struct bonsai_fx_voice *v, int16_t input)
+{
+ static const uint16_t lengths[6] = {149,211,263,293,37,59};
+ unsigned offset = 0;
+ int32_t sum = 0;
+ for (unsigned i = 0; i < 4; ++i) {
+  unsigned p = offset + v->position[i];
+  int16_t delayed = v->history[p];
+  v->history[p] = (int16_t)(((int32_t)input + (int32_t)delayed * 3) / 4);
+  sum += delayed;
+  if (++v->position[i] == lengths[i]) v->position[i] = 0;
+  offset += lengths[i];
+ }
+ int32_t wet = sum / 4;
+ for (unsigned i = 4; i < 6; ++i) {
+  unsigned p = offset + v->position[i];
+  int32_t delayed = v->history[p];
+  int32_t next = delayed - wet / 2;
+  v->history[p] = limit(wet + next / 2);
+  wet = next;
+  if (++v->position[i] == lengths[i]) v->position[i] = 0;
+  offset += lengths[i];
+ }
+ return limit(wet);
+}
+
+struct dd_frame bonsai_fx_process(struct bonsai_fx_voice *v,
+                                  struct dd_frame input)
+{
+ if (v->type != v->requested_type && !v->mix) activate(v);
+ if (v->type == BONSAI_FX_NONE) return input;
+ if (v->type != BONSAI_FX_FILTER && v->clear_index < BONSAI_FX_HISTORY) {
+  /* One bounded write per voice/sample, never memset a whole delay line in
+   * the audio callback. Cleared history cannot leak from a previous effect. */
+  v->history[v->clear_index++] = 0;
+  return input;
+ }
+ unsigned target = v->type != v->requested_type ? 0 :
+                   v->type == BONSAI_FX_FILTER ? 256 : v->requested_amount;
+ if (v->mix < target) ++v->mix;
+ else if (v->mix > target) --v->mix;
+ if (v->type == BONSAI_FX_FILTER) {
+  if (!v->filter_seeded) {
+   v->low_l = (int32_t)input.l * 256;
+   v->low_r = (int32_t)input.r * 256;
+   v->filter_seeded = true;
+  }
+  v->low_l = lowpass(v->low_l, input.l, v->alpha);
+  v->low_r = lowpass(v->low_r, input.r, v->alpha);
+  int32_t l = input.l + (v->low_l / 256 - input.l) * v->mix / 256;
+  int32_t r = input.r + (v->low_r / 256 - input.r) * v->mix / 256;
+  return (struct dd_frame){(int16_t)l, (int16_t)r};
+ }
+ v->input_sum += ((int32_t)input.l + input.r) / 2;
+ if (++v->phase == BONSAI_FX_DECIMATION) {
+  int16_t mono = (int16_t)(v->input_sum / (int)BONSAI_FX_DECIMATION);
+  v->input_sum = 0; v->phase = 0;
+  v->wet_previous = v->wet_next;
+  v->wet_next = v->type == BONSAI_FX_ECHO ? echo_tick(v, mono) :
+                                                       reverb_tick(v, mono);
+ }
+ int32_t wet = v->wet_previous +
+  ((int32_t)v->wet_next - v->wet_previous) * v->phase / (int)BONSAI_FX_DECIMATION;
+ wet = wet * v->mix / 256;
+ return (struct dd_frame){saturate((int32_t)input.l + wet, v),
+                         saturate((int32_t)input.r + wet, v)};
+}

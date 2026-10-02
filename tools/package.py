@@ -16,11 +16,11 @@ def main():
  DIST.mkdir(exist_ok=True)
  binary=ROOT/'build/zephyr/zephyr.bin';elf=ROOT/'build/zephyr/zephyr.elf'
  data=binary.read_bytes();sp,reset=struct.unpack_from('<II',data)
- versions=set(re.findall(rb'sp1-dual-deck-(\d+\.\d+(?:\.\d+)?)',data))
- assert len(versions)==1, 'Binary must contain one identifiable Dual Deck version'
+ versions=set(re.findall(rb'bonsai-8-(\d+\.\d+(?:\.\d+)?)',data))
+ assert len(versions)==1, 'Binary must contain one identifiable Bonsai 8 version'
  version=versions.pop().decode()
  source=(ROOT/'firmware/src/dual_firmware.inc').read_text()
- assert 'sp1-dual-deck-'+version in source, 'Build version does not match current source'
+ assert 'bonsai-8-'+version in source, 'Build version does not match current source'
  assert 0x20000000<=sp<=0x20040000 and sp%8==0, 'Invalid initial stack'
  assert reset&1 and 0x20000<=reset-1<0x20000+len(data), 'Invalid reset vector'
  assert len(data)<=0xdf000, 'Application overlaps reserved flash'
@@ -38,7 +38,7 @@ def main():
  for directory in ['firmware','boards','tools','tests']:
   sources += [p for p in (ROOT/directory).rglob('*') if p.is_file() and '__pycache__' not in p.parts]
  manifest={
-  'name':'SP-1 Dual Deck','version':version,'status':'Hardware-test candidate. See HARDWARE_TEST.md for version-specific measured results; packaging does not establish flashing or hardware verification.',
+  'name':'Bonsai 8','version':version,'status':'Hardware-test candidate. See HARDWARE_TEST.md for version-specific measured results; packaging does not establish flashing or hardware verification.',
   'upstream_commit':'44ba1ecbec6c844dba7f47eacee94c53af8ab10d',
   'source_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
   'source_dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
@@ -46,13 +46,14 @@ def main():
   'application_address':'0x20000','initial_stack':hex(sp),'reset_vector':hex(reset),
   'binary_bytes':len(data),'ram_used_bytes':ram_used,'ram_available_bytes':262144,
   'binary_sha256':digest(binary),'automatic_storage_format':False,
-  'tests':['C engine ASan/UBSan: eight voices, independent transports, mute/gain ramps, shared-deck starvation, counter wrap, speed bounds, pickup, codecs, saturation',
+  'tests':['C ASan/UBSan: recorder SPSC ring, P14S encoder, two-stage metadata publication and preservation, eight independent FX, impulse response and exact bypass',
+   'C engine ASan/UBSan: eight voices, independent transports, mute/gain ramps, shared-deck starvation, counter wrap, speed bounds, pickup, codecs, saturation',
    'Python: firmware-compatible PCM14 encoding, metadata preservation, bad-table rejection, real ffmpeg resampling, hardware USB discovery and robust diagnostics',
    'C ASan/UBSan: physical telemetry queue, tap edges, overflow, counter wrap, stereo capture ordering and bounds',
    'ARM ELF/vector/flash/RAM validation; dual mixer linked; upstream audio rings absent'],
   'source_sha256':{str(p.relative_to(ROOT)):digest(p) for p in sorted(sources)}
  }
- name='sp1-dual-deck-'+version
+ name='bonsai-8-'+version
  shutil.copy2(binary,DIST/f'{name}.bin')
  shutil.copy2(elf,DIST/f'{name}.elf')
  shutil.copy2(ROOT/'README.md',DIST/'README.md')

@@ -1,0 +1,26 @@
+Bonsai 8 / SP-1 companion
+Independent browser instrument. Not affiliated with Teenage Engineering.
+
+Rendering: Three.js r180, MIT, https://github.com/mrdoob/three.js
+ZIP export: fflate 0.8.2, MIT, https://github.com/101arrowz/fflate
+Inference runtime: ONNX Runtime Web 1.22.0, MIT, https://github.com/microsoft/onnxruntime
+Model: HT-Demucs, Meta Platforms, Inc., MIT, https://github.com/facebookresearch/demucs
+ONNX model export: StemSplit/demucs-onnx, MIT, https://github.com/StemSplit/demucs-onnx
+Model revision: d54ed9eb60e258ea82131c6ee14578628816456a
+https://huggingface.co/StemSplitio/htdemucs-onnx
+
+CRC lookup table: SP-1 Tape Looper, Copyright (c) 2026 chattock, MIT.
+See vendor/SP1-LICENSE.txt.
+
+Serial commands and physical input ordering independently implemented from the publicly accessible Solderless device monitor:
+https://solderless.engineering/deviceinfo/js/deviceinfo.js
+https://solderless.engineering/deviceinfo/js/protocol.js
+This deployment includes the Bonsai 8 candidate application firmware for explicit installation on an SP-1. Original MIT source credits and licenses are retained. No user audio is included.
+
+Visual references: user-supplied device photographs (not published), original SP-1 user guide, New Republic product photographs, timknapen/SP-1-dev and Adafruit SP-1 guide.
+https://op-forums.com/t/teenage-engineering-stem-player-user-guide/25375
+https://shopnewrepublic.com/products/yzy-2019-og-unreleased-stem-player-by-teenage-engineering
+https://github.com/timknapen/SP-1-dev
+https://learn.adafruit.com/hacking-the-teenage-engineering-sp-1
+The 3D model is a procedural visual approximation, not manufacturer CAD.
+The included demo is synthesized by this app and contains no sampled recordings.

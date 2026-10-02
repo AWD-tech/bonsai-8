@@ -3,6 +3,7 @@
  * An underrun holds the entire deck, preventing one stem drifting behind.
  */
 #include "dual_engine.h"
+#include "bonsai_fx.h"
 #include <string.h>
 #include <limits.h>
 static uint32_t bound(uint32_t n, uint32_t lo, uint32_t hi)
@@ -51,10 +52,140 @@ static int16_t clamp(int32_t n,uint32_t *clips)
  if(n<INT16_MIN) {++*clips;return INT16_MIN;}
  return (int16_t)n;
 }
+static int32_t interpolate(int16_t a,int16_t b,uint32_t fraction)
+{
+ /* |b-a| <= 65535 and fraction <= 65535: their product fits uint32_t.
+  * Applying the sign after the shift preserves C's truncation toward zero,
+  * including full-scale opposite-polarity samples, without 64-bit arithmetic
+  * in the Cortex-M4's eight-voice, stereo, 48 kHz inner loop. */
+ int32_t delta=(int32_t)b-a;
+ uint32_t magnitude=(uint32_t)(delta<0?-delta:delta);
+ int32_t change=(int32_t)((magnitude*fraction)>>16);
+ return a+(delta<0?-change:change);
+}
+struct steady_voice {
+ const struct dd_frame *ring;
+ uint32_t gain;
+ struct bonsai_fx_voice *fx;
+};
+static struct dd_frame steady_sample(const struct steady_voice *v,unsigned n,
+                                    uint32_t pos,uint32_t fraction)
+{
+ uint32_t a=pos&(DD_RING-1),b=(pos+1)&(DD_RING-1);
+ int32_t l=0,r=0;
+ /* At the normal 24k -> 48k playback rate, phases alternate between the
+  * original sample and its midpoint. Avoid the general multiply and sign
+  * correction there, while retaining its exact rounding toward sample a. */
+ if(!fraction) {
+  for(unsigned s=0;s<n;s++) {
+   struct dd_frame x=v[s].ring[a];
+   l+=(int32_t)x.l*(int32_t)v[s].gain;r+=(int32_t)x.r*(int32_t)v[s].gain;
+  }
+ } else if(fraction==32768) {
+  for(unsigned s=0;s<n;s++) {
+   struct dd_frame x=v[s].ring[a],y=v[s].ring[b];
+   l+=(x.l+((int32_t)y.l-x.l)/2)*(int32_t)v[s].gain;
+   r+=(x.r+((int32_t)y.r-x.r)/2)*(int32_t)v[s].gain;
+  }
+ } else {
+  for(unsigned s=0;s<n;s++) {
+   struct dd_frame x=v[s].ring[a],y=v[s].ring[b];
+   l+=interpolate(x.l,y.l,fraction)*(int32_t)v[s].gain;
+   r+=interpolate(x.r,y.r,fraction)*(int32_t)v[s].gain;
+  }
+ }
+ return (struct dd_frame){l/1024,r/1024};
+}
+static struct dd_frame steady_sample_fx(const struct steady_voice *v,unsigned n,
+                                       uint32_t pos,uint32_t fraction)
+{
+ uint32_t a=pos&(DD_RING-1),b=(pos+1)&(DD_RING-1);
+ int32_t l=0,r=0;
+ for(unsigned s=0;s<n;s++) {
+  struct dd_frame in={0,0};
+  if(v[s].ring) {
+   in=v[s].ring[a];
+   if(fraction) {
+    struct dd_frame next=v[s].ring[b];
+    if(fraction==32768) {
+     in.l+=(int16_t)(((int32_t)next.l-in.l)/2);
+     in.r+=(int16_t)(((int32_t)next.r-in.r)/2);
+    } else {
+     in.l=(int16_t)interpolate(in.l,next.l,fraction);
+     in.r=(int16_t)interpolate(in.r,next.r,fraction);
+    }
+   }
+  }
+  if(v[s].fx) in=bonsai_fx_process(v[s].fx,in);
+  l+=(int32_t)in.l*(int32_t)v[s].gain;
+  r+=(int32_t)in.r*(int32_t)v[s].gain;
+ }
+ return (struct dd_frame){l/1024,r/1024};
+}
+static bool render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
+                          uint32_t pos[2],const uint32_t available[2],
+                          const uint32_t step[2],const bool play[2],
+                          const bool any[2],const uint16_t gain[2][4],uint32_t master,
+                          struct bonsai_fx_voice *effect[2][4],bool effects_active)
+{
+ /* Most blocks have unchanged controls and ample buffered audio. Validate
+  * that once, rather than rechecking ramps, presence and starvation for each
+  * of eight voices at every output frame. Edge/ramp/starved blocks still run
+  * the sample-at-a-time path below. The count bound keeps phase arithmetic
+  * within 32 bits; callers may render larger blocks through the general path. */
+ if(!count||count>DD_RING) return false;
+ struct steady_voice voice[2][4];unsigned voices[2]={0,0};
+ uint32_t fraction[2];
+ for(unsigned k=0;k<2;k++) {
+  struct dd_deck *d=&e->deck[k];
+  if(!play[k]||!any[k]||d->starved||d->envelope!=256) return false;
+  fraction[k]=d->fraction;
+  uint32_t needed=2+((fraction[k]+(count-1)*step[k])>>16);
+  if(available[k]<needed) return false;
+  for(unsigned s=0;s<4;s++) {
+   struct dd_voice *v=&d->voice[s];
+   if(!v->present) {
+    if(effect[k][s]) voice[k][voices[k]++]=(struct steady_voice){NULL,0,effect[k][s]};
+    continue;
+   }
+   if(v->current_gain!=gain[k][s]) return false;
+   if(gain[k][s]||effect[k][s])
+    voice[k][voices[k]++]=(struct steady_voice){v->ring,gain[k][s],effect[k][s]};
+  }
+ }
+ struct dd_frame last[2];
+ for(uint32_t f=0;f<count;f++) {
+  int32_t l=0,r=0;
+  for(unsigned k=0;k<2;k++) {
+   last[k]=effects_active?steady_sample_fx(voice[k],voices[k],pos[k],fraction[k]):
+                          steady_sample(voice[k],voices[k],pos[k],fraction[k]);
+   l+=last[k].l;r+=last[k].r;
+   fraction[k]+=step[k];pos[k]+=fraction[k]>>16;fraction[k]&=65535;
+  }
+  out[2*f]=clamp(l*(int32_t)master/256,&e->clips);
+  out[2*f+1]=clamp(r*(int32_t)master/256,&e->clips);
+ }
+ for(unsigned k=0;k<2;k++) {
+  e->deck[k].fraction=fraction[k];e->deck[k].last=last[k];
+ }
+ return true;
+}
 void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
 {
  uint32_t pos[2],available[2],step[2]; bool play[2],any[2]={false,false};
  uint16_t gain[2][4]; uint32_t master=bound(atomic_load(&e->master),0,256);
+ struct bonsai_fx_voice *effect[2][4]={{NULL}};
+ bool effects_active=false;
+ if(e->fx) {
+  bonsai_fx_begin_block(e->fx);
+  for(unsigned k=0;k<2;k++) for(unsigned s=0;s<4;s++) {
+   struct bonsai_fx_voice *v=&e->fx->voice[k*4+s];
+   /* Keep the old effect alive until its bypass fade has completed. */
+   if(v->type!=BONSAI_FX_NONE||v->requested_type!=BONSAI_FX_NONE) {
+    effect[k][s]=v;effects_active=true;
+   }
+  }
+ }
  for(unsigned k=0;k<2;k++) {
   struct dd_deck *d=&e->deck[k];
   pos[k]=atomic_load_explicit(&d->read,memory_order_relaxed); available[k]=DD_RING;
@@ -69,6 +200,10 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
    if(n>DD_RING) n=0;
    if(n<available[k]) available[k]=n;
   }
+ }
+ if(render_steady(e,out,count,pos,available,step,play,any,gain,master,effect,effects_active)) {
+  for(unsigned k=0;k<2;k++) atomic_store_explicit(&e->deck[k].read,pos[k],memory_order_release);
+  return;
  }
  for(uint32_t f=0;f<count;f++) {
   int32_t ml=0,mr=0;
@@ -85,19 +220,36 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
    if(running) {
     dl=dr=0;
     for(unsigned s=0;s<4;s++) {
-     struct dd_voice *v=&d->voice[s]; if(!v->present) continue;
+     struct dd_voice *v=&d->voice[s];
+     struct bonsai_fx_voice *fx=effect[k][s];
+     if(!v->present) {
+      if(fx) (void)bonsai_fx_process(fx,(struct dd_frame){0,0});
+      continue;
+     }
      if(v->current_gain<gain[k][s]) ++v->current_gain;
      else if(v->current_gain>gain[k][s]) --v->current_gain;
+     /* Wet history follows the unmuted source before gain, even while this
+      * stem is muted, so unmuting cannot replay a frozen old echo tail. */
+     if(!v->current_gain&&!fx) continue;
      struct dd_frame a=v->ring[pos[k]&(DD_RING-1)],b=v->ring[(pos[k]+1)&(DD_RING-1)];
-     /* Difference fits 17 signed bits; int64 prevents full-scale overflow. */
-     int32_t l=a.l+(int32_t)(((int64_t)b.l-a.l)*d->fraction/65536);
-     int32_t r=a.r+(int32_t)(((int64_t)b.r-a.r)*d->fraction/65536);
+     int32_t l=interpolate(a.l,b.l,d->fraction);
+     int32_t r=interpolate(a.r,b.r,d->fraction);
+     if(fx) {
+      struct dd_frame processed=bonsai_fx_process(fx,(struct dd_frame){l,r});
+      l=processed.l;r=processed.r;
+     }
      dl+=l*v->current_gain; dr+=r*v->current_gain;
     }
     /* 12dB fixed headroom, then saturate the final two-deck bus. */
     dl/=1024; dr/=1024; d->last=(struct dd_frame){dl,dr};
     d->fraction+=step[k]; uint32_t advance=d->fraction>>16; d->fraction&=65535;
     pos[k]+=advance; available[k]-=advance;
+   } else if(effects_active) {
+    /* Paused, missing or starved sources feed silence to effect tails. Their
+     * output is not audible while transport is stopped, but state and effect
+     * changes still advance at the same 48 kHz clock as the other deck. */
+    for(unsigned s=0;s<4;s++) if(effect[k][s])
+     (void)bonsai_fx_process(effect[k][s],(struct dd_frame){0,0});
    }
    ml+=dl*d->envelope/256; mr+=dr*d->envelope/256;
   }

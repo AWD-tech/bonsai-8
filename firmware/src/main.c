@@ -6990,7 +6990,7 @@ static bool emmc_busy_abort_chk(void)
  * can always preempt the bit-bang busy-waits and keep the I2S DMA fed. Per
  * PLAY track: read-ahead into the play ring. Per REC/DONE track: flush the rec
  * ring to the card; on DONE, finish the tail then switch the track to PLAY. */
-static K_THREAD_STACK_DEFINE(streamer_stack, 3072);  /* RD2-475: was 3072 (474), 4096 originally. 474's run RECORDED, so the write/flush chain was on this stack, and U4S STILL measured a 680 B peak -- identical to the read-only 473 figure. 3.0x margin, 1368 B free. */  /* 4096: the eMMC driver is -O2 here, so its read/send_command/crc chain inlines into a deeper frame on this thread */
+static K_THREAD_STACK_DEFINE(streamer_stack, 4096);  /* RD2-475: was 3072 (474), 4096 originally. 474's run RECORDED, so the write/flush chain was on this stack, and U4S STILL measured a 680 B peak -- identical to the read-only 473 figure. 3.0x margin, 1368 B free. */  /* 4096: the eMMC driver is -O2 here, so its read/send_command/crc chain inlines into a deeper frame on this thread */
 static struct k_thread streamer_tcb;
 static uint8_t g_streamer_started;   /* v1.2.3: streamer may start EARLY (standby) */
 static void streamer_thread(void *a, void *b, void *c);
@@ -8518,7 +8518,12 @@ static bool emmc_read_blocks_fast(uint32_t blk, uint8_t *buf, uint32_t n)
 			{	/* CRCC-625 (W302): the canary -- every block below the rate or while
 				 * re-armed, else one rotating block per call; a mismatch retries the
 				 * turn fully checked (the attempt loop) and re-arms full checking */
+#ifdef SP1_DUAL_DECK
+                /* Dual Deck verifies every sector, including at eight-stem rate. */
+                const bool _full = true;
+#else
 				const bool _full = (g_crcc_full != 0u) || (g_crcc_rate <= CRCC_RATE_FULL);
+#endif
 				const uint32_t _pick = g_crcc_pick++ % c;
 				for (uint32_t bi = 0; bi < c; bi++) {
 					if (!_full && bi != _pick) { g_m71_sk++; continue; }
@@ -11123,7 +11128,7 @@ static void usb_audio_start(void)
 	 * per VID/PID/version — without a version bump a PC that saw the old
 	 * (Code-10) audio descriptor keeps judging a re-flashed SP-1 by the
 	 * cached copy and can stay broken even after the fix. */
-	(void)usbd_device_set_bcd_device(usbd, 0x0301);
+	(void)usbd_device_set_bcd_device(usbd, 0x0400);
 
 	if (usbd_enable(usbd) != 0) {
 		printk("usbd enable failed\n");

@@ -17,7 +17,7 @@ class TransferTests(unittest.TestCase):
  def setUpClass(cls):
   cls.tmp=tempfile.TemporaryDirectory()
   lib=Path(cls.tmp.name)/'engine.dylib'
-  subprocess.run(['cc','-shared','-O2','-std=c11','-fPIC',str(ROOT/'firmware/src/dual_engine.c'),'-o',str(lib)],check=True)
+  subprocess.run(['cc','-shared','-O2','-std=c11','-fPIC',str(ROOT/'firmware/src/dual_engine.c'),str(ROOT/'firmware/src/bonsai_fx.c'),'-o',str(lib)],check=True)
   cls.lib=C.CDLL(str(lib));cls.lib.dd_decode.argtypes=[C.c_void_p,C.c_uint8,C.POINTER(Frame)]
  @classmethod
  def tearDownClass(cls): cls.tmp.cleanup()
@@ -64,6 +64,13 @@ class TransferTests(unittest.TestCase):
          SimpleNamespace(device='/dev/cu.unrelated',vid=0x1915,pid=0x5210,product='Other firmware')]
   with patch('serial.tools.list_ports.comports',return_value=ports):
    self.assertEqual(sp1.select_port(None),'/dev/cu.usbmodem1101')
+ def test_bonsai_usb_and_runtime_identity(self):
+  ports=[SimpleNamespace(device='/dev/cu.bonsai',vid=0x2fe3,pid=0x5210,product='Bonsai 8')]
+  with patch('serial.tools.list_ports.comports',return_value=ports):
+   self.assertEqual(sp1.select_port(None),'/dev/cu.bonsai')
+  device=sp1.Device.__new__(sp1.Device);device.transfer=False
+  device.serial=SimpleNamespace(write=lambda _:None,readline=lambda *args:b'{"firmware":"bonsai-8-0.4.0","storage":1}\n')
+  self.assertEqual(device.status()['storage'],1)
  def test_status_skips_startup_lines(self):
   device=sp1.Device.__new__(sp1.Device);device.transfer=False
   lines=iter([b'\r\n',b'boot complete\n',b'{"firmware":"sp1-dual-deck-0.1","storage":0}\n'])

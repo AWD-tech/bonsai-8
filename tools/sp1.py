@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SP-1 Dual Deck transfer/diagnostics. Requires pyserial and ffmpeg for uploads."""
+"""Bonsai 8 transfer/diagnostics. Requires pyserial and ffmpeg for uploads."""
 import argparse
 import json
 from pathlib import Path
@@ -124,7 +124,7 @@ class Device:
             if not line: break
             try: state = json.loads(line)
             except (ValueError, UnicodeError): continue
-            if isinstance(state, dict) and str(state.get('firmware', '')).startswith('sp1-dual-deck-'):
+            if isinstance(state, dict) and str(state.get('firmware', '')).startswith(('bonsai-8-', 'sp1-dual-deck-')):
                 return state
         raise RuntimeError('No complete Dual Deck status response; check device power and firmware')
     def close(self):
@@ -138,7 +138,7 @@ def select_port(port):
     # Zephyr 4.3's sample USB initializer uses 0x2fe3 despite SAMPLE_USBD_VID.
     # The product string prevents selecting an unrelated upstream looper.
     found = [p.device for p in comports() if p.vid in (0x2fe3, 0x1915)
-             and p.pid == 0x5210 and p.product == 'SP-1 Dual Deck']
+             and p.pid == 0x5210 and p.product in ('Bonsai 8', 'SP-1 Dual Deck')]
     if len(found) != 1: raise ValueError('Use --port with the powered-on SP-1 serial port (not bootloader)')
     return found[0]
 

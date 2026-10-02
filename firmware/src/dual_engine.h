@@ -11,6 +11,7 @@
 #define DD_P16M 6u
 #define DD_MAX_DECODE 248u
 struct dd_frame { int16_t l, r; };
+struct bonsai_fx;
 struct dd_voice {
  struct dd_frame ring[DD_RING];
  _Atomic uint32_t written, gain;
@@ -25,7 +26,14 @@ struct dd_deck {
  bool starved;
  struct dd_frame last;
 };
-struct dd_engine { struct dd_deck deck[DD_DECKS]; _Atomic uint32_t master; uint32_t clips; };
+struct dd_engine {
+ struct dd_deck deck[DD_DECKS];
+ _Atomic uint32_t master;
+ uint32_t clips;
+ /* Optional externally owned effects bank. NULL preserves the dry renderer.
+  * Attach/detach only with audio excluded; controls use bonsai_fx_set(). */
+ struct bonsai_fx *fx;
+};
 struct dd_pickup { int previous; bool waiting; };
 void dd_init(struct dd_engine *e);
 /* Reset needs exclusive access; the adapter briefly locks scheduling. */
