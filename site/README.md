@@ -1,6 +1,6 @@
 # Bonsai 8 site
 
-The browser companion for Bonsai 8 custom SP-1 firmware. Live site: https://placid-shrine-2h5k.here.now/. Firmware repository: https://github.com/AWD-tech/bonsai-8 (private).
+The browser companion for Bonsai 8 custom SP-1 firmware. Live site: https://sp-1.xyz/. Firmware repository: https://github.com/AWD-tech/bonsai-8 (private).
 
 Publish only `public/`, never the workspace root. The deployed files include a candidate firmware application and its release manifest, public libraries and licenses, and the user manual. They must not include user audio, device logs, raw reference photographs, local credentials, or temporary test fixtures.
 
@@ -46,3 +46,7 @@ Local inference is demanding and may take several minutes. Browser import is cap
 ## Credits
 
 See `public/credits.txt` and `public/vendor/*LICENSE.txt`. Original MIT credits are retained. The CRC table comes from SP-1 Tape Looper; bootloader framing follows the existing Solderless updater protocol.
+
+## User guidance and icons
+
+`public/guide.html` is the illustrated, mobile-friendly guide. The downloadable manual is generated from the firmware repository's `USER_MANUAL.md`. Use SVG paths for interface icons; do not use emoji or Unicode play/pause glyphs. Keep both transport states accessible by updating their button label.

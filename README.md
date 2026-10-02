@@ -2,9 +2,9 @@
 
 Custom firmware for the SP-1: two independently selected songs, four stems per song, and eight stems mixed on the player. The four faders control the selected deck; switching decks keeps the other song's settings. Playback does not need a computer.
 
-**[Read the complete user manual](USER_MANUAL.md)** or [download the printable Bonsai 8 manual](output/pdf/Bonsai-8-User-Manual.pdf). It explains mixing vocals from one song over another song's instruments, browsing the whole library, pickup, lights, volume, pitch, candidate effects, standalone recording and the companion site.
+**[Read the complete user manual](USER_MANUAL.md)**, [follow the illustrated guide](https://sp-1.xyz/guide.html), or [download the printable Bonsai 8 manual](output/pdf/Bonsai-8-User-Manual.pdf). It explains mixing vocals from one song over another song's instruments, browsing the whole library, pickup, lights, volume, pitch, candidate effects, standalone recording and the companion site.
 
-Private development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). Companion website: [Bonsai 8 / Virtual SP-1](https://placid-shrine-2h5k.here.now/). The website URL stays the same after the rename. See [CONTRIBUTING.md](CONTRIBUTING.md) for branches and pull requests.
+Private development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). Companion website: [Bonsai 8](https://sp-1.xyz/). See [CONTRIBUTING.md](CONTRIBUTING.md) for branches and pull requests.
 
 ## Release status
 
@@ -16,7 +16,7 @@ The candidate work includes browsing the device library on the site, choosing an
 
 There is **no automatic beat or key matching**, independent pitch shift, or time stretching. Within each song, its four stems share one playhead; between songs, tempo and launch timing are manual. The rocker changes the selected deck's speed and pitch together. Each of its four stem volumes is independent; the physical master controls the combined output.
 
-Based on [chattock/sp1-tape-looper](https://github.com/chattock/sp1-tape-looper), pinned at `44ba1ecbec6c844dba7f47eacee94c53af8ab10d`. Original MIT notice and board attribution are retained. `README-upstream.md` and the root `sp1_looper.bin` are unchanged upstream references, not this release.
+Based on [chattock/sp1-tape-looper](https://github.com/chattock/sp1-tape-looper), pinned at `44ba1ecbec6c844dba7f47eacee94c53af8ab10d`. Original MIT notice and board attribution are retained. `README-upstream.md` and the root `sp1_looper.bin` are upstream references, not this release. The upstream README only has its download-link icon removed.
 
 ## Controls
 

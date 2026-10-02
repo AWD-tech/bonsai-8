@@ -20,9 +20,9 @@ function gain(i,v){audio.setGain(i,v);device?.setGain(i,v);$(`gain-${i}`).value=
 function updateMix(){for(let i=0;i<4;i++){gain(i,audio.gains[i]);for(const [type,values] of [['mute',audio.mutes],['solo',audio.solos]]){$(`${type}-${i}`).classList.toggle('active',values[i]);$(`${type}-${i}`).setAttribute('aria-pressed',String(values[i]));}}}
 for(let i=0;i<4;i++){$(`gain-${i}`).addEventListener('input',e=>gain(i,Number(e.target.value)/100));$(`mute-${i}`).onclick=()=>{audio.mute(i);updateMix();};$(`solo-${i}`).onclick=()=>{audio.solo(i);updateMix();};}
 let previousButtons=null, hardwareState=null;
-const liveAudio=new LiveSP1Audio(()=>{$('live-audio-status').textContent='SP–1 audio disconnected.';$('listen-sp1').textContent='Listen here ↗';});
+const liveAudio=new LiveSP1Audio(()=>{$('live-audio-status').textContent='SP–1 audio disconnected.';$('listen-sp1').textContent='Listen here';});
 $('listen-sp1').onclick=async()=>{
- if(liveAudio.stream){liveAudio.stop();$('listen-sp1').textContent='Listen here ↗';$('live-audio-status').textContent='Listening stopped. Device progress remains live.';return;}
+ if(liveAudio.stream){liveAudio.stop();$('listen-sp1').textContent='Listen here';$('live-audio-status').textContent='Listening stopped. Device progress remains live.';return;}
  $('listen-sp1').disabled=true;
  try{audio.pause();await liveAudio.start();$('listen-sp1').textContent='Stop listening';$('live-audio-status').textContent='Live stereo mix from SP–1 · 48 kHz';}
  catch(error){$('live-audio-status').textContent=error.message;notify(error.message);}
@@ -38,7 +38,7 @@ function frame(){
  liveAudio.draw($('live-wave'));
  audio.tick();const now=performance.now();if(now-lastFrame<45)return;lastFrame=now;
  const pos=audio.position();$('time-current').textContent=time(pos);if(document.activeElement!==$('seek'))$('seek').value=audio.duration?Math.round(pos/audio.duration*1000):0;
- $('play').textContent=audio.playing?'Ⅱ':'▶';$('play').setAttribute('aria-label',audio.playing?'Pause':'Play');
+ $('play').classList.toggle('is-playing',audio.playing);$('play').setAttribute('aria-label',audio.playing?'Pause':'Play');
  for(let i=0;i<4;i++){if(audio.playing&&audio.analysers){audio.analysers[i].getByteTimeDomainData(meters);let sum=0;for(const v of meters)sum+=((v-128)/128)**2;levels[i]=Math.min(1,Math.sqrt(sum/128)*6);}else levels[i]=audio.buffers[i]?.08:0;}
  if(!hardwareState)device?.lights(levels,audio.mutes);
 }
@@ -84,7 +84,7 @@ $('split').onclick=safe(async()=>{
  if(!original||busy)return;setBusy(true);audio.pause();$('split-progress').value=0;$('separation-title').textContent='Starting separation…';$('separation-info').textContent='Keep this tab open. You can cancel at any time.';
  worker=new Worker('./separate-worker.js',{type:'module'});const localWorker=worker;
  const channels=[original.getChannelData(0).slice(),original.getChannelData(Math.min(1,original.numberOfChannels-1)).slice()];
- const finishError=message=>{if(worker!==localWorker)return;worker.terminate();worker=null;setBusy(false);$('split').hidden=false;$('split').textContent='Retry separation ↗';$('separation-title').textContent='Separation could not finish';$('separation-info').textContent=`${message} You can retry or import existing stems.`;notify('Separation failed. Your original track is still available.');};
+ const finishError=message=>{if(worker!==localWorker)return;worker.terminate();worker=null;setBusy(false);$('split').hidden=false;$('split').textContent='Retry separation';$('separation-title').textContent='Separation could not finish';$('separation-info').textContent=`${message} You can retry or import existing stems.`;notify('Separation failed. Your original track is still available.');};
  worker.onerror=e=>finishError(e.message||'The separation worker stopped.');
  worker.onmessage=safe(async({data})=>{
  if(worker!==localWorker)return;
@@ -108,11 +108,11 @@ $('load-stems').onclick=safe(async()=>{
 $('download').onclick=safe(async()=>{
  if(mode==='source'||mode==='empty')return;$('download').disabled=true;
  try{notify('Preparing your WAV files…');const files={};for(let i=0;i<4;i++){const b=audio.buffers[i];if(b)files[`${i+1}-${NAMES[i].toLowerCase()}.wav`]=new Uint8Array(wav(Array.from({length:b.numberOfChannels},(_,c)=>b.getChannelData(c)),b.sampleRate));}
- files['READ-ME.txt']=new TextEncoder().encode('Exported from Virtual SP-1. These are the original separated stems, before mixer gain, mute, solo or pitch. Track order: vocals, drums, bass, other. Audio was processed locally.\n');
+ files['READ-ME.txt']=new TextEncoder().encode('Exported from Bonsai 8. These are the original separated stems, before mixer gain, mute, solo or pitch. Track order: vocals, drums, bass, other. Audio was processed locally.\n');
  const output=await new Promise((resolve,reject)=>zip(files,{level:0},(e,data)=>e?reject(e):resolve(data)));const url=URL.createObjectURL(new Blob([output],{type:'application/zip'}));const a=document.createElement('a');a.href=url;a.download=`${songName.replace(/[^a-z0-9 _-]/gi,'').trim()||'sp1'}-stems.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);notify('Your stem ZIP is ready.');}
  finally{$('download').disabled=false;}
 });
-const modalLinks=[['connect-open','connect-dialog'],['guide-open','guide-dialog'],['import-open','import-dialog'],['credits-open','credits-dialog']];
+const modalLinks=[['connect-open','connect-dialog'],['import-open','import-dialog'],['credits-open','credits-dialog']];
 for(const [button,dialog] of modalLinks)$(button).onclick=()=>$(dialog).showModal();
 for(const dialog of document.querySelectorAll('dialog')){dialog.querySelector('[data-close]').onclick=()=>dialog.close();dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}});}
 const hardwareKeys=['forward','volumeUp','rewind','volumeDown','track3','track2','track1','track0','play','function'];
@@ -145,10 +145,10 @@ const hardware = new SP1Connection((f,b,state)=>{
  if(state)return mirrorDualDeck(state);
  const legacy=decodeControls(f,b);let values=legacy.gains;if($('reverse-faders').checked)values.reverse();values.forEach((v,i)=>gain(i,$('invert-faders').checked?1-v:v));
  legacy.buttons.forEach((pressed,i)=>{device?.setButton(hardwareKeys[i],pressed);if(previousButtons&&pressed&&!previousButtons[i])control(hardwareKeys[i]);});previousButtons=legacy.buttons;
-},(message,connected=false)=>{$('hardware-status').textContent=message;$('connect-open').classList.toggle('connected',connected);$('connect-label').textContent=connected?'Bonsai 8 connected':'Connect SP–1';$('connect').hidden=connected;$('disconnect').hidden=!connected;libraryUI?.state(connected);for(const id of ['master','pitch-down','pitch-up','reset-mix','play','loop','seek',...Array.from({length:4},(_,i)=>`gain-${i}`),...Array.from({length:4},(_,i)=>`mute-${i}`),...Array.from({length:4},(_,i)=>`solo-${i}`)])$(id).disabled=connected;if(!connected){hardwareState=null;$('mix-heading').textContent='Browser mix';liveAudio.stop();$('live-player').hidden=true;$('listen-sp1').textContent='Listen here ↗';mirrorTimeline.reset();device?.setHardwareMode(false);$('hardware-deck').hidden=true;hardwareKeys.forEach(key=>device?.setButton(key,false));}},packet=>{
+},(message,connected=false)=>{$('hardware-status').textContent=message;$('connect-open').classList.toggle('connected',connected);$('connect-label').textContent=connected?'Bonsai 8 connected':'Connect SP–1';$('connect').hidden=connected;$('disconnect').hidden=!connected;libraryUI?.state(connected);for(const id of ['master','pitch-down','pitch-up','reset-mix','play','loop','seek',...Array.from({length:4},(_,i)=>`gain-${i}`),...Array.from({length:4},(_,i)=>`mute-${i}`),...Array.from({length:4},(_,i)=>`solo-${i}`)])$(id).disabled=connected;if(!connected){hardwareState=null;$('mix-heading').textContent='Browser mix';liveAudio.stop();$('live-player').hidden=true;$('listen-sp1').textContent='Listen here';mirrorTimeline.reset();device?.setHardwareMode(false);$('hardware-deck').hidden=true;hardwareKeys.forEach(key=>device?.setButton(key,false));}},packet=>{
  if(mirrorTimeline.push(packet,performance.now()))$('hardware-status').textContent='Mirror resynchronized after a connection delay.';
 });
-libraryUI=setupLibrary({connection:hardware,audio,sourceBusy:()=>busy||importBusy,canUpload:()=>['demo','imported','separated'].includes(mode)&&!busy&&!importBusy,notify,stopMonitor:()=>{liveAudio.stop();$('listen-sp1').textContent='Listen here ↗';}});
+libraryUI=setupLibrary({connection:hardware,audio,sourceBusy:()=>busy||importBusy,canUpload:()=>['demo','imported','separated'].includes(mode)&&!busy&&!importBusy,notify,stopMonitor:()=>{liveAudio.stop();$('listen-sp1').textContent='Listen here';}});
 $('connect').onclick=async()=>{
  $('connect').disabled=true;previousButtons=null;
  try{await audio.init();await hardware.connect($('firmware-mode').value);if(hardware.mode==='dual')await libraryUI.refresh();notify(hardware.fullMirror?'Physical lights, faders and button presses are connected.':'Mixer connected. Bonsai 8 is needed to mirror physical lights and button presses.');}

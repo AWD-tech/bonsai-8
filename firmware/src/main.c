@@ -4304,7 +4304,7 @@ static void __attribute__((optimize("O2"), noinline)) fx_chain_run(int32_t *mix3
 		 * The lean path is master volume -> limiter -> store -> decimated
 		 * VU, and nothing else. It costs flash (a duplicated loop) and
 		 * returns cycles, which is the right trade on a part with plenty of
-		 * flash and ~4%% idle. ⚠ NOTE: this is an OPTIMISATION, not a
+		 * flash and ~4%% idle. NOTE: this is an OPTIMISATION, not a
 		 * regression fix -- W206 measured the same-bin corner spread at
 		 * 24%% / 2x, so nothing smaller than that was ever demonstrated. */
 		const int fx_any = (flt_mode != 0u && rp1) || (chr_mix != 0) || (dst_g != 0)
@@ -14905,7 +14905,7 @@ int main(void)
 					 * let go -- the chord arrives here as a bare 1+4 and would
 					 * mute tracks 1 and 4, or (held long enough) reach the
 					 * bootloader. Swallow it until the ladder is truly idle.
-					 * ⚠ THIS is the real hazard. 563 guarded an imaginary one
+					 * NOTE: THIS is the real hazard. 563 guarded an imaginary one
 					 * in code that never executes. */
 					combo14_t  = -1;
 					combo_held = 0;
@@ -14913,7 +14913,7 @@ int main(void)
 				} else if (combo_now == 0x9) {  /* ONLY exactly 1+4 arms the bootloader */
 					/* time-based (not a +8/iter counter) so the diag-print path
 					 * can't skew the threshold.
-					 * ⚠ UNGUARDED BY DESIGN. There is no reset pin; this is the
+					 * NOTE: UNGUARDED BY DESIGN. There is no reset pin; this is the
 					 * only way back. FN cannot reach here anyway (the FN branch
 					 * continues out ~230 lines above), so a modifier test would
 					 * be theatre. */
