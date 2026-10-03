@@ -25,6 +25,31 @@ def report():
                 mirror_replies=0)
 
 class ReleaseTests(unittest.TestCase):
+    def test_filter_only_release_requires_its_declared_capability(self):
+        self.assertEqual(release.playback_cases({'version':'0.4.3'}), release.CASES)
+        self.assertEqual(release.playback_cases({'version':'0.4.4','effects':['filter']}),
+                         ('dry','filter','usb_mirror'))
+        for effects in [None, [], ['echo'], ['filter','echo']]:
+            with self.assertRaises(ValueError):
+                release.playback_cases({'version':'0.4.4','effects':effects})
+
+    def test_filter_only_gate_requires_eight_full_filters_even_with_usb(self):
+        r=report()
+        for sample in r['samples']:
+            sample['status'].update(firmware='bonsai-8-0.4.4',effects=['filter'],
+                                    fx=[(1<<16)|256]*8)
+        release.validate_playback(r,'0.4.4','filter')
+        for case in ['echo','reverb']:
+            with self.assertRaises(ValueError): release.validate_playback(r,'0.4.4',case)
+        r['mirror_replies']=500
+        for sample in r['samples']:sample['status']['capture_active']=1
+        r['samples'][-1]['status']['capture_packets']=20000
+        release.validate_playback(r,'0.4.4','usb_mirror')
+        for invalid in [0, (1<<16)|249, (2<<16)|256]:
+            bad=copy.deepcopy(r)
+            for sample in bad['samples']:sample['status']['fx'][7]=invalid
+            with self.assertRaises(ValueError): release.validate_playback(bad,'0.4.4','usb_mirror')
+
     def test_accepts_measured_eight_stem_dry_run(self):
         release.validate_playback(report(), '0.4.1', 'dry')
 

@@ -12,6 +12,8 @@
 #define DD_MAX_DECODE 248u
 #define DD_EFFECT_CHUNK 64u
 struct dd_frame { int16_t l, r; };
+/* Processing headroom only; source rings and stored audio remain int16 stereo. */
+struct dd_wide_frame { int32_t l, r; };
 struct bonsai_fx;
 struct dd_voice {
  struct dd_frame ring[DD_RING];
@@ -25,7 +27,7 @@ struct dd_deck {
  uint32_t fraction, underruns;
  uint16_t envelope;
  bool starved;
- struct dd_frame last;
+ struct dd_wide_frame last;
 };
 struct dd_engine {
  struct dd_deck deck[DD_DECKS];
@@ -36,8 +38,8 @@ struct dd_engine {
  struct bonsai_fx *fx;
  /* Audio-owner scratch: bounded chunks avoid growing the 1536-byte thread
   * stack or allocating in the callback. Shared by both decks serially. */
- struct dd_frame effect_frames[DD_EFFECT_CHUNK];
- int32_t effect_sum[DD_EFFECT_CHUNK*2];
+ struct dd_wide_frame effect_frames[DD_EFFECT_CHUNK];
+ int32_t effect_sum[DD_DECKS][DD_EFFECT_CHUNK*2];
 };
 struct dd_pickup { int previous; bool waiting; };
 void dd_init(struct dd_engine *e);

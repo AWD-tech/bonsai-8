@@ -24,6 +24,17 @@ def require(condition, message):
     if not condition:
         raise ValueError(message)
 
+def filter_only_version(version):
+    require(isinstance(version, str) and re.fullmatch(r'\d+\.\d+\.\d+', version),
+            'Invalid release version')
+    return tuple(map(int, version.split('.'))) >= (0, 4, 4)
+
+def playback_cases(manifest):
+    if filter_only_version(manifest.get('version')):
+        require(manifest.get('effects') == ['filter'], 'Filter-only capability missing')
+        return ('dry', 'filter', 'usb_mirror')
+    return CASES
+
 def delta(before, after):
     require(isinstance(before, int) and isinstance(after, int), 'Invalid counter')
     return (after - before) & 0xffffffff
@@ -38,6 +49,8 @@ def stable_gains(states):
 
 def validate_playback(report, version, case):
     require(case in CASES, 'Unknown playback gate')
+    filter_only = filter_only_version(version)
+    require(not filter_only or case not in ('echo', 'reverb'), 'Effect is no longer supported')
     require(report.get('seconds', 0) >= 20, 'Need at least twenty measured seconds')
     require(report.get('verdict') == 'PASS' and not report.get('error')
             and not report.get('changed'), 'Measurement was not a stable PASS')
@@ -51,6 +64,8 @@ def validate_playback(report, version, case):
     first = states[0]
     for status in states:
         require(status.get('firmware') == 'bonsai-8-' + version, 'Wrong runtime version')
+        if filter_only:
+            require(status.get('effects') == ['filter'], 'Runtime effect capability mismatch')
         require(status.get('playing') == [1, 1] and status.get('mute') == [0, 0],
                 'Both decks and every stem must be audible')
         gains = status.get('gains', [])
@@ -68,6 +83,12 @@ def validate_playback(report, version, case):
                     for key in COUNTERS), 'New fault or clipping counter')
     fx = first.get('fx', [])
     require(len(fx) == 8, 'Missing effect settings')
+    if filter_only:
+        require(all(value >> 16 in (0, 1) and (value & 0xffff) <= 256 for value in fx),
+                'Unsupported runtime effect setting')
+        if case in ('filter', 'usb_mirror'):
+            require(all(value >> 16 == 1 and (value & 0xffff) >= 250 for value in fx),
+                    'All eight filters must be at full amount')
     if case == 'dry':
         require(all((value & 0xffff) == 0 for value in fx), 'Dry test had active effects')
     elif case in ('filter', 'echo', 'reverb'):
@@ -122,7 +143,7 @@ def main():
     p.add_argument('--library-before', type=Path, required=True)
     p.add_argument('--library-after', type=Path, required=True)
     for case in CASES:
-        p.add_argument('--' + case.replace('_', '-'), type=Path, required=True)
+        p.add_argument('--' + case.replace('_', '-'), type=Path)
     p.add_argument('--stage', type=Path, help='Target public firmware directory')
     a = p.parse_args()
     manifest, binary = load(a.manifest), a.binary.read_bytes()
@@ -140,11 +161,15 @@ def main():
     validate_flash([json.loads(line) for line in a.flash.read_text().splitlines() if line],
                    binary, manifest)
     validate_library(load(a.library_before), load(a.library_after))
-    gates = {case: validate_playback(load(getattr(a, case)), version, case) for case in CASES}
+    cases = playback_cases(manifest)
+    require(all(getattr(a, case) is not None for case in cases),
+            'Missing required playback reports: ' + ', '.join(cases))
+    gates = {case: validate_playback(load(getattr(a, case)), version, case) for case in cases}
     public = {'product': 'Bonsai 8', 'version': version, 'status': 'verified',
               'bytes': len(binary), 'sha256': hashlib.sha256(binary).hexdigest(),
               'application_address': 0x20000, 'file': a.binary.name,
               'source_commit': manifest['source_commit'], 'hardware_gates': gates,
+              'effects': manifest.get('effects', ['filter', 'echo', 'reverb']),
               'library_preservation': 'Same occupied slots, stem presence and lengths after application-only update; no audio readback implied',
               'limits': ['Tests cover listed steady workloads, not all possible combinations',
                          'Updater acknowledgements verified; flash readback unavailable']}

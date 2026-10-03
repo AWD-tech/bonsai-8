@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
+#include <stdlib.h>
 static struct dd_engine engine;
 static struct bonsai_fx effects, reference_effects;
 static struct dd_frame frames[DD_RING];
@@ -181,13 +182,13 @@ static void reference_render(struct dd_engine *e,int16_t *out,uint32_t count)
      int32_t l=reference_interpolate(a.l,b.l,d->fraction);
      int32_t r=reference_interpolate(a.r,b.r,d->fraction);
      if(effect[k][s]) {
-      struct dd_frame wet=bonsai_fx_process(effect[k][s],(struct dd_frame){l,r});
+      struct dd_wide_frame wet=bonsai_fx_process(effect[k][s],(struct dd_frame){l,r});
       l=wet.l;r=wet.r;
      }
      dl+=l*v->current_gain; dr+=r*v->current_gain;
     }
     /* 12dB fixed headroom, then saturate the final two-deck bus. */
-    dl/=1024; dr/=1024; d->last=(struct dd_frame){dl,dr};
+    dl/=1024; dr/=1024; d->last=(struct dd_wide_frame){dl,dr};
     d->fraction+=step[k]; uint32_t advance=d->fraction>>16; d->fraction&=65535;
     pos[k]+=advance; available[k]-=advance;
    } else {
@@ -221,7 +222,7 @@ static void test_render_differential(void)
    atomic_store(&d->mute_mask,steady?0:random_u32()&15);
    d->fraction=trial%4==0?0:trial%4==1?32768:random_u32()&65535;
    d->envelope=steady?256:random_u32()%257;d->starved=!steady&&(random_u32()%2);
-   d->last=(struct dd_frame){(int16_t)random_u32(),(int16_t)random_u32()};
+   d->last=(struct dd_wide_frame){(int16_t)random_u32(),(int16_t)random_u32()};
    for(unsigned s=0;s<4;s++) {
     struct dd_voice *v=&d->voice[s];uint32_t gain=random_u32()%257;
     atomic_store(&v->gain,gain);v->current_gain=steady?gain:random_u32()%257;
@@ -291,7 +292,7 @@ static void test_effect_per_stem_before_gain(void)
   struct dd_frame a=frames[i/2],b=frames[i/2+1];
   struct dd_frame in={reference_interpolate(a.l,b.l,(i&1)*32768u),
                       reference_interpolate(a.r,b.r,(i&1)*32768u)};
-  struct dd_frame wet=bonsai_fx_process(&reference_effects.voice[7],in);
+  struct dd_wide_frame wet=bonsai_fx_process(&reference_effects.voice[7],in);
   assert(out[i*2]==((int32_t)wet.l*128/1024)*128/256);
   assert(out[i*2+1]==((int32_t)wet.r*128/1024)*128/256);
  }
@@ -308,22 +309,23 @@ static void test_effect_per_stem_before_gain(void)
  compare_effect_voice(7);assert(atomic_load(&d->read)==384);
  assert(out[510]==0&&out[511]==0);
 }
-static void test_effect_tails_on_empty_and_starved_sources(void)
+static void test_filter_state_on_empty_and_starved_sources(void)
 {
  dd_init(&engine);bonsai_fx_init(&effects);bonsai_fx_init(&reference_effects);
  engine.fx=&effects;
- assert(bonsai_fx_set(&effects,0,BONSAI_FX_ECHO,256));
- assert(bonsai_fx_set(&reference_effects,0,BONSAI_FX_ECHO,256));
- /* Completely absent/paused deck must still clear and service its settings. */
+ assert(bonsai_fx_set(&effects,0,BONSAI_FX_FILTER,256));
+ assert(bonsai_fx_set(&reference_effects,0,BONSAI_FX_FILTER,256));
+ /* Completely absent/paused deck must still service its filter settings. */
  dd_render(&engine,out,512);reference_effect_frames(0,0,512,true);
- compare_effect_voice(0);assert(effects.voice[0].clear_index==512);
+ compare_effect_voice(0);assert(effects.voice[0].mix==256&&effects.voice[0].filter_seeded);
+ assert(effects.voice[0].low_l==0&&effects.voice[0].low_r==0);
  /* Present but starved voice gets silence; no read of unfilled source ring. */
  dd_reset_deck(&engine.deck[0],1);atomic_store(&engine.deck[0].playing,1);
  dd_render(&engine,out,512);reference_effect_frames(0,0,512,true);
- compare_effect_voice(0);assert(effects.voice[0].clear_index==1024);
+ compare_effect_voice(0);assert(effects.voice[0].low_l==0&&effects.voice[0].low_r==0);
  assert(engine.deck[0].underruns==1);
  assert(atomic_load(&engine.deck[0].read)==0);
- assert(bonsai_fx_set(&effects,0,BONSAI_FX_ECHO,0));
+ assert(bonsai_fx_set(&effects,0,BONSAI_FX_FILTER,0));
  dd_render(&engine,out,512);
  assert(effects.voice[0].type==BONSAI_FX_NONE);
  for(unsigned i=0;i<1024;i++) assert(out[i]==0);
@@ -336,7 +338,7 @@ static void test_effect_steady_differential(void)
   dd_init(&engine);bonsai_fx_init(&effects);engine.fx=&effects;
   atomic_store(&engine.master,128+trial%129);
   for(unsigned voice=0;voice<8;voice++) {
-   enum bonsai_fx_type type=(enum bonsai_fx_type)((voice+trial)%4);
+   enum bonsai_fx_type type=(enum bonsai_fx_type)((voice+trial)%2);
    assert(bonsai_fx_set(&effects,voice,type,(voice+trial)%3?128:256));
   }
   bonsai_fx_begin_block(&effects);
@@ -350,7 +352,7 @@ static void test_effect_steady_differential(void)
    atomic_store(&d->playing,play);atomic_store(&d->speed,rates[(trial+k)%4]);
    d->envelope=play&&mask?256:0;
    d->fraction=trial%3==0?0:trial%3==1?32768:random_u32()&65535;
-   d->last=(struct dd_frame){(int16_t)random_u32(),(int16_t)random_u32()};
+   d->last=(struct dd_wide_frame){(int16_t)random_u32(),(int16_t)random_u32()};
    uint32_t pos=UINT32_MAX-200;
    atomic_store(&d->read,pos);
    for(unsigned s=0;s<4;s++) {
@@ -365,13 +367,13 @@ static void test_effect_steady_differential(void)
   memcpy(&reference_effects,&effects,sizeof(effects));reference_engine.fx=&reference_effects;
   for(unsigned pass=0;pass<4;pass++) {
    if(pass==1) {
-    assert(bonsai_fx_set(&effects,trial%8,BONSAI_FX_REVERB,256));
-    assert(bonsai_fx_set(&reference_effects,trial%8,BONSAI_FX_REVERB,256));
+    assert(bonsai_fx_set(&effects,trial%8,BONSAI_FX_FILTER,256));
+    assert(bonsai_fx_set(&reference_effects,trial%8,BONSAI_FX_FILTER,256));
    }
    if(pass==2) {
     /* Exercise the optimized renderer during effect bypass fade as well. */
-    assert(bonsai_fx_set(&effects,trial%8,BONSAI_FX_ECHO,0));
-    assert(bonsai_fx_set(&reference_effects,trial%8,BONSAI_FX_ECHO,0));
+    assert(bonsai_fx_set(&effects,trial%8,BONSAI_FX_FILTER,0));
+    assert(bonsai_fx_set(&reference_effects,trial%8,BONSAI_FX_FILTER,0));
    }
    unsigned n=counts[(trial+pass)%10];
    dd_render(&engine,out,n);reference_render(&reference_engine,reference_out,n);
@@ -389,11 +391,58 @@ static void test_effect_steady_differential(void)
   }
  }
 }
+static void test_highpass_wide_deck_sum_before_master(void)
+{
+ for(unsigned mode=0;mode<3;mode++) {
+  dd_init(&engine);bonsai_fx_init(&effects);engine.fx=&effects;
+  unsigned master=mode==2?256:64;
+  atomic_store(&engine.master,master);
+  for(unsigned k=0;k<2;k++) {
+   struct dd_deck *d=&engine.deck[k];dd_reset_deck(d,15);
+   atomic_store(&d->playing,1);d->envelope=256;
+   bool opposite=mode==1&&k==1;
+   struct dd_frame old=opposite?(struct dd_frame){INT16_MIN,INT16_MAX}:
+                                  (struct dd_frame){INT16_MAX,INT16_MIN};
+   struct dd_frame flipped={old.r,old.l};
+   for(unsigned s=0;s<4;s++) {
+    unsigned voice=k*4+s;
+    atomic_store(&d->voice[s].gain,256);d->voice[s].current_gain=256;
+    for(unsigned i=0;i<DD_RING;i++)frames[i]=flipped;
+    assert(dd_push(d,s,frames,DD_RING));
+    assert(bonsai_fx_set(&effects,voice,BONSAI_FX_FILTER,1));
+    bonsai_fx_begin_block(&effects);
+    for(unsigned i=0;i<256;i++)(void)bonsai_fx_process(&effects.voice[voice],old);
+   }
+  }
+  memcpy(&reference_engine,&engine,sizeof(engine));
+  memcpy(&reference_effects,&effects,sizeof(effects));reference_engine.fx=&reference_effects;
+  dd_render(&engine,out,1);reference_render(&reference_engine,reference_out,1);
+  assert(out[0]==reference_out[0]&&out[1]==reference_out[1]);
+  /* Every voice's -65535/+65535 residual is normalized by beta=510/512.
+   * Four unity-gain stems make each deck +/-65279, beyond int16 before
+   * master gain. A narrow scratch buffer or deck.last would wrap here. */
+  int32_t transient=(int32_t)((int64_t)65535*510/512);
+  assert(engine.deck[0].last.l==-transient&&engine.deck[0].last.r==transient);
+  assert(abs(engine.deck[0].last.l)>INT16_MAX);
+  if(mode==1){assert(out[0]==0&&out[1]==0&&engine.clips==0);}
+  else if(mode==0){assert(out[0]==-transient/2&&out[1]==transient/2&&engine.clips==0);}
+  else {assert(out[0]==INT16_MIN&&out[1]==INT16_MAX&&engine.clips==2);}
+  dd_render(&engine,out,511);reference_render(&reference_engine,reference_out,511);
+  assert(!memcmp(out,reference_out,1022*sizeof(*out)));
+  assert(engine.clips==reference_engine.clips);
+  for(unsigned k=0;k<2;k++) {
+   assert(engine.deck[k].last.l==reference_engine.deck[k].last.l);
+   assert(engine.deck[k].last.r==reference_engine.deck[k].last.r);
+  }
+  for(unsigned voice=0;voice<8;voice++){compare_effect_voice(voice);assert(!effects.voice[voice].clipped);}
+ }
+}
 int main(void)
 {
  test_eight_stems();test_starvation_holds_deck();test_wrap_speed_and_bounds();
  test_pickup();test_codec();test_saturation();test_interpolation_full_range();test_render_differential();
- test_effect_per_stem_before_gain();test_effect_tails_on_empty_and_starved_sources();
+ test_effect_per_stem_before_gain();test_filter_state_on_empty_and_starved_sources();
  test_effect_steady_differential();
+ test_highpass_wide_deck_sum_before_master();
  puts("PASS: eight distinct stems, independent decks, mute/gain ramps, starvation sync, ring wrap, speed bounds, pickup, codecs, clipping, per-stem effects and exact bypass");
 }

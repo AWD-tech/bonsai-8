@@ -177,13 +177,14 @@ static void test_plain_function_and_pitch(void){
  assert(dd_selected==1&&atomic_load(&dd.deck[1].speed)==65536+655);
  assert(atomic_load(&dd.deck[0].playing)==1);
 }
-static void test_effect_still_uses_wheel(void){
+static void test_filter_edit_ignores_wheel(void){
  reset(0xffff,0,0,1);
  bonsai_fx_set(&dd_fx,0,BONSAI_FX_FILTER,128);
  hold(5,1,200,0);hold(6,1,200,1220);hold(6,1,200,0);
  hold(6,1,200,1220);hold(6,1,200,0);hold(6,0,0,0);
  run();assert(request_count==0);
- assert((atomic_load(&dd_fx.config[0])>>16)==BONSAI_FX_REVERB);
+ assert(atomic_load(&dd_fx.config[0])==((BONSAI_FX_FILTER<<16)|128));
+ assert(atomic_load(&dd.deck[0].speed)==65536);
  assert(atomic_load(&dd.deck[0].mute_mask)==0&&dd_selected==0);
  assert(atomic_load(&dd.deck[1].playing)==1);
 }
@@ -202,7 +203,7 @@ int main(int argc,char **argv){
  else if(!strcmp(argv[1],"held"))test_repeated_hold();
  else if(!strcmp(argv[1],"release"))test_modifier_release();
  else if(!strcmp(argv[1],"plain"))test_plain_function_and_pitch();
- else if(!strcmp(argv[1],"effects"))test_effect_still_uses_wheel();
+ else if(!strcmp(argv[1],"effects"))test_filter_edit_ignores_wheel();
  else if(!strcmp(argv[1],"busy"))test_record_busy_and_empty();
  else return 2;
  puts("actual physical control replay passed");return 0;

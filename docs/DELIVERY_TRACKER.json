@@ -11,7 +11,7 @@
       "id": 2,
       "owner": "audio",
       "task": "SFX quality and MCU deadline correction",
-      "state": "0.4.2 dry/two-filter passes; USB+filters device failure; 0.4.3 diagnostic built, unflashed"
+      "state": "0.4.4 filter-only flashed and runtime verified; hardware performance pending; 0.4.2 USB failure is historical"
     },
     {
       "id": 3,
@@ -231,97 +231,97 @@
       "id": 36,
       "owner": "audio",
       "task": "Hot-input saturation",
-      "state": "in progress"
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
     },
     {
       "id": 37,
       "owner": "audio",
       "task": "Reverb internal headroom",
-      "state": "in progress"
+      "state": "retired from 0.4.4 scope by explicit user choice: Reverb removed; historical work retained"
     },
     {
       "id": 38,
       "owner": "audio",
       "task": "Wet decimation alias rejection",
-      "state": "in progress"
+      "state": "retired from 0.4.4 scope by explicit user choice: Echo/Reverb wet decimation removed"
     },
     {
       "id": 39,
       "owner": "audio",
       "task": "Filter coefficient ramp",
-      "state": "in progress"
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
     },
     {
       "id": 40,
       "owner": "audio",
       "task": "Exact bypass",
-      "state": "in progress"
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
     },
     {
       "id": 41,
       "owner": "audio",
       "task": "Effect persistence",
-      "state": "in progress"
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
     },
     {
       "id": 42,
       "owner": "audio",
-      "task": "Eight independent histories",
-      "state": "in progress"
+      "task": "Eight independent filter states",
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
     },
     {
       "id": 43,
       "owner": "audio",
       "task": "Stereo dry image",
-      "state": "in progress"
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
     },
     {
       "id": 44,
       "owner": "audio",
       "task": "Bounded wet energy",
-      "state": "in progress"
+      "state": "retired Echo/Reverb wet-path requirement for 0.4.4; retained high-pass headroom checked under hot-input saturation task"
     },
     {
       "id": 45,
       "owner": "audio",
       "task": "Steady 1x cost",
-      "state": "in progress"
+      "state": "0.4.4 filter-only verification pending; earlier three-effect measurements are not current-candidate evidence"
     },
     {
       "id": 46,
       "owner": "audio",
       "task": "1.25x cost",
-      "state": "in progress"
+      "state": "0.4.4 filter-only verification pending; earlier three-effect measurements are not current-candidate evidence"
     },
     {
       "id": 47,
       "owner": "audio",
       "task": "Transition cost",
-      "state": "in progress"
+      "state": "0.4.4 filter-only verification pending; earlier three-effect measurements are not current-candidate evidence"
     },
     {
       "id": 48,
       "owner": "audio",
       "task": "Scalar/buffer differential",
-      "state": "in progress"
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
     },
     {
       "id": 49,
       "owner": "audio",
       "task": "Sanitizer stress",
-      "state": "in progress"
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
     },
     {
       "id": 50,
       "owner": "audio",
       "task": "RAM and stack accounting",
-      "state": "in progress"
+      "state": "0.4.4 ARM build: RAM 230772/262144, 17272 bytes below 0.4.3; thread stack high-water mark unmeasured"
     },
     {
       "id": 51,
       "owner": "audio",
       "task": "MCU budget and worst-workload measurements",
-      "state": "0.4.2 dry/two-filter passes; USB+filters device failure; 0.4.3 diagnostic built, unflashed"
+      "state": "0.4.4 filter-only flashed and runtime verified; hardware performance pending; 0.4.2 USB failure is historical"
     },
     {
       "id": 52,
@@ -351,7 +351,7 @@
       "id": 56,
       "owner": "release-and-hardware",
       "task": "Actual requested-effect gate",
-      "state": "host-pass"
+      "state": "earlier gate host-pass; 0.4.4 supported-filter-only gate adaptation in progress under root"
     },
     {
       "id": 57,
@@ -386,42 +386,41 @@
     {
       "id": 62,
       "owner": "release-and-hardware",
-      "task": "0.4.2 application flash and version/index check",
-      "state": "device-pass; unchanged four-song index, not fresh audio readback",
-      "evidence": "hardware-tests/bonsai-0.4.2-postflash.json"
+      "task": "0.4.4 application flash and version/index check",
+      "state": "device-pass for installation/runtime/filter capability/index only; no flash or audio readback"
     },
     {
       "id": 63,
       "owner": "release-and-hardware",
       "task": "All-eight dry playback",
-      "state": "0.4.2 all-eight dry 20.021-second device-pass",
-      "evidence": "hardware-tests/bonsai-0.4.2-eight-dry-repeat.json"
+      "state": "0.4.4 all-eight dry20.054s device-pass",
+      "evidence": "hardware-tests/bonsai-0.4.4-eight-dry.json"
     },
     {
       "id": 64,
       "owner": "release-and-hardware",
       "task": "Full filter playback",
-      "state": "partial hardware evidence: two high filters 20.066-second pass; full-amount/eight-effect gate pending",
+      "state": "0.4.4 all-eight full high-pass filter gate pending; historical 0.4.2 two-filter20.066-second pass only",
       "evidence": "hardware-tests/bonsai-0.4.2-eight-filters-current.json"
     },
     {
       "id": 65,
       "owner": "release-and-hardware",
       "task": "Echo/reverb audible and deadline test",
-      "state": "0.4.1 failure reported; controlled 0.4.2 echo/reverb gates pending"
+      "state": "retired from 0.4.4 scope by explicit user choice: Echo/Reverb removed; earlier reported failures remain historical"
     },
     {
       "id": 66,
       "owner": "release-and-hardware",
       "task": "USB audio and mirroring maximum load",
-      "state": "device-fail: 0.4.2 +200/+93 underruns in 20.066s, callback max 6741us > 5333us",
-      "evidence": "hardware-tests/bonsai-0.4.2-eight-usb-filters.json"
+      "state": "0.4.4 all eight dry stems + USB capture/mirror: +225/+241 underruns in20.063s; filters bypassed, stable controls",
+      "evidence": "hardware-tests/bonsai-0.4.4-eight-usb-dry.json"
     },
     {
       "id": 67,
       "owner": "release-and-hardware",
       "task": "Offline recording/save/reboot/export",
-      "state": "pending"
+      "state": "pending; filter-only scope does not close recording/save/reboot/export hardware gate"
     },
     {
       "id": 68,
@@ -516,14 +515,68 @@
   ],
   "updated": "2026-10-03",
   "release_status": {
-    "installed": "bonsai-8-0.4.2",
-    "installed_verification": "runtime and unchanged four-song index; audio sectors not reread",
-    "candidate": "bonsai-8-0.4.3",
-    "candidate_state": "built and host-tested; not flashed or hardware-tested",
-    "candidate_sha256": "3a0fc2bb2c58a5de47692a94fda3ec9c680b2d4c6fc76a4a5ec2d58a08245294",
+    "installed": "bonsai-8-0.4.4",
+    "installed_verification": "runtime bonsai-8-0.4.4, effects=[filter], unchanged four-song entries/framecounts; no flash/audio readback or library writes",
+    "candidate": "bonsai-8-0.4.4",
+    "candidate_state": "installed; dry/USB-only short hardware passes; combined USB+mirroring fails even with filters bypassed",
     "public_installer": "0.4.0 candidate; not a verified release",
-    "site_version": "01M40G6B6QPB4MZVJ63CASWQ4J",
-    "site_tests_passed": 122,
-    "blocking_measurement": "0.4.2 eight stems + two high filters + USB capture/mirror: +200/+93 underruns in 20.066s; callback maximum 6741us > 5333us deadline"
-  }
+    "site_version": "01M40J4331V6AMYAED5JZVP1YV",
+    "site_tests_passed": 138,
+    "blocking_measurement": "0.4.4 all eight dry stems + USB capture/mirror: +225/+241 underruns in20.063s; filters bypassed, stable controls",
+    "previous_candidate": {
+      "version": "bonsai-8-0.4.3",
+      "state": "built and host-tested; never flashed; superseded by filter-only scope",
+      "sha256": "3a0fc2bb2c58a5de47692a94fda3ec9c680b2d4c6fc76a4a5ec2d58a08245294"
+    },
+    "candidate_scope": {
+      "retained_effect": "independent high-pass filter per stem; increasing amount removes bass/low frequencies",
+      "removed_effects": [
+        "Echo",
+        "Reverb"
+      ],
+      "reason": "explicit user choice to reduce effects scope while resolving USB/mirroring load",
+      "controls": "hold FUNCTION + stem, use that fader after pickup; rocker ignored during editing; side light 1 identifies Filter; zero bypass",
+      "cutoff_range": "not claimed until DSP endpoint measurements are confirmed"
+    },
+    "site_test_scope": "Final integrated site suite:138 pass; later documentation-only status updates.",
+    "candidate_hardware_gates": [
+      "all eight stems dry for a stable 20-second window",
+      "all eight high-pass filters at full amount",
+      "same full filter workload with USB audio capture and mirroring",
+      "varied speeds and filter/level transitions",
+      "browse while the other deck plays",
+      "offline recording, verified save, reboot and export",
+      "browser flash preservation and recovery"
+    ],
+    "candidate_sha256": "cb6e2c1ebb8e5277a0ae693bea5ed0d4bc0a98c4760312a738031bb907fb64ef",
+    "candidate_binary_bytes": 106504,
+    "candidate_ram_bytes": 230772,
+    "site_tests_note": "Final integrated site suite: 138 pass, including deferred audio permission, cancellation and application races.",
+    "installation": {
+      "flash_start_utc": "2026-10-03T09:39:54Z",
+      "flash_end_utc": "2026-10-03T09:40:02Z",
+      "runtime_verified_utc": "2026-10-03T09:41:12Z",
+      "application_pages": 27,
+      "chunks": 469,
+      "crc_valid_finalizations": 2,
+      "library_writes": false,
+      "flash_or_audio_readback": false,
+      "application_bytes": 106504,
+      "ram_bytes": 230772,
+      "sha256": "cb6e2c1ebb8e5277a0ae693bea5ed0d4bc0a98c4760312a738031bb907fb64ef"
+    }
+  },
+  "scope_changes": [
+    {
+      "date": "2026-10-03",
+      "decision": "User explicitly retained Filter and removed Echo/Reverb for 0.4.4, then chose high-pass direction. Earlier effect tests remain historical evidence, not pending current-release features."
+    }
+  ],
+  "follow_up_work": [
+    {
+      "task": "Volume-triggered stutter investigation",
+      "state": "in progress after filter-only installation; user identifies physical +/- master buttons; broader constant-volume USB+mirror failure also reproduced",
+      "validation": "controlled physical volume changes with eight stems; compare USB capture/mirroring on and off, retain timing and underrun evidence"
+    }
+  ]
 }

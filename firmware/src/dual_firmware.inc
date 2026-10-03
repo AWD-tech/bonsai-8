@@ -223,7 +223,7 @@ static void dual_status(void)
  irq_unlock(key);
  for(unsigned i=0;i<8;i++) fx_clips+=dd_fx.voice[i].clipped;
  int n=snprintf(line,sizeof(line),
-  "{\"firmware\":\"bonsai-8-0.4.3\",\"mirror\":1,\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"audio_us_total\":%u,\"audio_blocks\":%u,\"capture_push_us\":%u,\"capture_push_calls\":%u,\"capture_push_max\":%u,\"capture_sof_us\":%u,\"capture_sof_calls\":%u,\"capture_sof_max\":%u,\"cdc_us\":%u,\"cdc_max\":%u,\"cdc_bytes\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
+  "{\"firmware\":\"bonsai-8-0.4.4\",\"mirror\":1,\"effects\":[\"filter\"],\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"audio_us_total\":%u,\"audio_blocks\":%u,\"capture_push_us\":%u,\"capture_push_calls\":%u,\"capture_push_max\":%u,\"capture_sof_us\":%u,\"capture_sof_calls\":%u,\"capture_sof_max\":%u,\"cdc_us\":%u,\"cdc_max\":%u,\"cdc_bytes\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
   dd_usb_capture_on,dd_usb_packets,dd_usb_audio.underruns,dd_usb_audio.overflows,dd_usb_send_errors,
   atomic_load(&dd_position[0]),atomic_load(&dd_position[1]),atomic_load(&dd_length[0]),atomic_load(&dd_length[1]),
   atomic_load(&dd_record_state),atomic_load(&dd_record_slot)+1,atomic_load(&dd_rec.source_frames)/2,atomic_load(&dd_record_error),
@@ -666,15 +666,9 @@ static void dual_controls(void)
    } else if(vc==VOL_TEMPO_UP||vc==VOL_TEMPO_DOWN) {
     if(fn) {
      modified_wheel=true;
-     if(effect_stem>=0) {
-      if(vc!=oldv) {
-       unsigned voice=dd_selected*4+(unsigned)effect_stem;
-       unsigned config=atomic_load(&dd_fx.config[voice]);
-       unsigned type=config>>16;
-       type=type<1||type>3?(dir>0?1:3):1+(type-1+3+dir)%3;
-       bonsai_fx_set(&dd_fx,voice,type,config&0xffffu);
-      }
-     } else dual_choose_song(dir);
+     /* The sole effect is Filter. A wheel press while editing must not
+      * browse songs or alter deck pitch, including on modifier release. */
+     if(effect_stem<0) dual_choose_song(dir);
      repeat=now+500;fn_used=true;
     }
     else {int speed=(int)atomic_load(&dd.deck[dd_selected].speed)+dir*655;atomic_store(&dd.deck[dd_selected].speed,CLAMP(speed,32768,81920));}
@@ -695,7 +689,7 @@ static void dual_controls(void)
    if(effect_stem==(int)fi) {
     unsigned voice=dd_selected*4+fi,config=atomic_load(&dd_fx.config[voice]);
     if(dd_pickup_move(&effect_pick,config&0xffffu,value))
-     bonsai_fx_set(&dd_fx,voice,(config>>16)?config>>16:BONSAI_FX_FILTER,value);
+     bonsai_fx_set(&dd_fx,voice,BONSAI_FX_FILTER,value);
    } else if(dd_pickup_move(&dd_pick[fi],atomic_load(&v->gain),value)) atomic_store(&v->gain,value);
   }
   fi=(fi+1)%4;
@@ -716,8 +710,7 @@ static void dual_controls(void)
     if(atomic_load(&dd.deck[1].playing)) led_on(2);
    }
    if(effect_stem>=0) {
-    all_off();unsigned type=atomic_load(&dd_fx.config[dd_selected*4+(unsigned)effect_stem])>>16;
-    led_on(type>=1&&type<=3?type-1:0);
+    all_off();led_on(0);
    }
    unsigned recording=atomic_load(&dd_record_state);
    if(recording>=1&&recording<=3) {

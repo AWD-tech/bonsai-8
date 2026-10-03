@@ -2,13 +2,13 @@
 
 Two songs. Eight stems. Your mix.
 
-User guide / Firmware 0.4 series and companion site / 3 October 2026
+User guide / Firmware 0.4.4 candidate and companion site / 3 October 2026
 
 Bonsai 8 turns the SP-1 into a two-deck stem player. Choose a song for **Deck A** and another for **Deck B**. Bring their voices, drums and instruments together, shape each stem, and record the result on the player.
 
 The four faders control one deck at a time. Tap **FUNCTION** to change decks. The other deck keeps playing with the levels you left it at.
 
-**Release status:** The 0.4 series is under hardware testing. Read the exact version and test status in the website installer before updating. This guide describes the implemented controls; effects, USB audio and recording still need their version-specific checks. Opening the website does not update your player.
+**Release status:** The test player now runs the filter-only 0.4.4 candidate, with its four song entries unchanged. Eight-stem dry playback and USB audio alone passed short tests, but USB audio together with mirroring still caused dropouts. This is not a verified release. Check the exact version and test status in the website installer before updating. Opening the website does not update your player. The older 0.4.0–0.4.3 effect controls are noted in section 04.
 
 ### Your first playback
 
@@ -75,7 +75,7 @@ A **tap** is a short press and release. PLAY and track-button holds become a dif
 | Wheel, without FUNCTION | Change the selected deck's speed and pitch together. |
 | FUNCTION + wheel | Browse all occupied songs on the selected deck. |
 | Volume + / - | Adjust the combined master volume. |
-| FUNCTION + a track button, held | Edit that stem's effect: wheel chooses; fader sets amount. |
+| FUNCTION + a track button, held | Edit that stem's filter amount with its fader. The wheel has no effect while editing. |
 | FUNCTION + both volume buttons, hold 1 second | Start or stop recording the mix. Release before repeating. |
 | Track 1 + Track 4, hold 3 seconds | Enter bootloader mode for a firmware update. |
 
@@ -109,7 +109,7 @@ A lit track light means that stem exists and is unmuted on the selected deck. It
 | Situation | Side-light display |
 | --- | --- |
 | Hold FUNCTION to browse | Song-slot position and group. See below. |
-| Edit an effect | Light 1: filter. Light 2: echo. Light 3: reverb. |
+| Edit a filter (0.4.4) | Side light 1 identifies Filter. |
 | Recording | All four blink slowly. |
 | Recording stopped; draining or saving | All four blink faster. Pause both decks and keep power on. |
 | Recording saved | Normal deck lights return. |
@@ -126,23 +126,16 @@ For example, slot 6 shows light 2 steady and light 2 blinking at the same positi
 
 ## 04 / Shape a stem
 
-Each of the eight deck/stem positions can use **one effect at a time**: filter, echo or reverb. Effects stay active after you release the controls, including when that deck changes songs. They reset at power-off.
+In **0.4.4**, each of the eight deck/stem positions has its own **high-pass filter**. Increasing its amount removes more bass and low frequencies while keeping the brighter highs. The filter stays active after you release the controls, including when that deck changes songs. Its setting resets at power-off.
 
 1. Tap FUNCTION to select the deck you want.
-2. Hold FUNCTION and that stem's track button together. Keep both held while editing.
-3. Tap the wheel in either direction to cycle through filter, echo and reverb. Side lights 1, 2 and 3 identify the choice.
-4. Move that stem's fader through its stored effect amount to pick it up, then adjust. A stem starts at zero effect amount after power-on. Changing effect type keeps its current amount.
-5. Release the buttons. The fader returns to volume control with pickup, so it will not jump the stem's level.
+2. Hold FUNCTION and that stem's track button together. Keep both held while editing. Side light 1 identifies Filter.
+3. Move that stem's fader through its stored filter amount to pick it up, then adjust. After power-on, begin at minimum to pick up the starting amount of zero.
+4. Release the buttons. The fader returns to volume control with pickup, so it will not jump the stem's level.
 
-**To turn an effect off, set its amount to zero using the same gesture.** The wheel cycles three effects; it does not have a separate Off position.
+**To bypass the filter, set its amount to zero using the same gesture.** The wheel has no effect while editing the filter. Release the buttons to use the wheel for its normal deck speed/pitch control.
 
-| Effect | What you hear |
-| --- | --- |
-| Filter | A low-pass filter. Increasing the amount removes more high frequencies. |
-| Echo | A fixed 250 ms repeat. It does not follow the song's tempo. |
-| Reverb | A compact, dark tail around the stem. |
-
-Echo and reverb add a dark mono effect while keeping the original dry sound stereo. Their softened high frequencies are intentional. They are suited to texture and atmosphere; they do not include tempo sync or key matching.
+**Older firmware, 0.4.0–0.4.3:** These versions have Filter, Echo and Reverb. While holding FUNCTION + a stem button, the wheel cycles those three choices; side lights 1, 2 and 3 identify them. That stem's fader sets the amount, and zero bypasses it. This is the historical mapping. The installed 0.4.4 removes Echo and Reverb and uses the filter-only controls above. Removing them alone does not establish that USB playback is reliable.
 
 ### Volume and pitch while mixing
 
@@ -297,7 +290,7 @@ For illustrated, step-by-step help, open [sp-1.xyz/guide.html](https://sp-1.xyz/
 | A recorded mix only uses Track 1 | Correct: the complete stereo mix is on Track 1. The other three stems are empty. |
 | The site cannot connect | Power on normally, use a data cable and desktop Chrome or Edge, and close other player connections. |
 | No sound through Listen here | Check audio-input permission and whether the computer sees a Bonsai 8 or SP-1 Dual Deck USB input. Reconnect the powered-on player. |
-| Music becomes choppy | Try fewer audible stems and turn effects off to compare. The 0.4.0 candidate still needs full eight-stem hardware testing; do not assume a moving timer means clean audio. |
+| Music becomes choppy | Stop Listen here and bypass the filter to compare. The earlier 0.4.2 failed the eight-stem USB/mirroring test with two filters; installed 0.4.4 still needs its own hardware tests. A moving timer does not prove clean audio. |
 | Side lights alternate in pairs | Storage is unavailable or unrecognized. Reconnect and check the site status; do not erase an existing library as a troubleshooting step. |
 
 For a repeatable problem, note the firmware version, songs on A and B, active stems, speeds, effects, and whether recording or USB listening was active. Keep your source audio backed up.

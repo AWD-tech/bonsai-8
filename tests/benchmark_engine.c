@@ -17,7 +17,7 @@ int main(int argc, char **argv)
  if(amount>256) {fputs("amount must be 0..256\n",stderr);return 2;}
  dd_init(&engine);atomic_store(&engine.master,128);
  if(effect) {
-  if(effect>BONSAI_FX_REVERB) {fputs("effect must be 0..3\n",stderr);return 2;}
+  if(effect>BONSAI_FX_FILTER) {fputs("effect must be 0 (dry) or 1 (filter); retired effects 2/3 are unsupported\n",stderr);return 2;}
   bonsai_fx_init(&effects);engine.fx=&effects;
   for(unsigned i=0;i<8;i++) if(mask&(1u<<i)) bonsai_fx_set(&effects,i,(enum bonsai_fx_type)effect,amount);
  }

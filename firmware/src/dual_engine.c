@@ -25,7 +25,7 @@ void dd_reset_deck(struct dd_deck *d,uint8_t mask)
 {
  atomic_store(&d->playing,0); atomic_store(&d->read,0);
  d->fraction=0; d->envelope=0; d->starved=false;
- d->last=(struct dd_frame){0,0};
+ d->last=(struct dd_wide_frame){0,0};
  for(unsigned s=0;s<4;s++) {
   atomic_store(&d->voice[s].written,0);
   d->voice[s].present=!!(mask&(1u<<s)); d->voice[s].current_gain=0;
@@ -68,7 +68,7 @@ struct steady_voice {
  uint32_t gain;
  struct bonsai_fx_voice *fx;
 };
-static struct dd_frame steady_sample(const struct steady_voice *v,unsigned n,
+static struct dd_wide_frame steady_sample(const struct steady_voice *v,unsigned n,
                                     uint32_t pos,uint32_t fraction)
 {
  uint32_t a=pos&(DD_RING-1),b=(pos+1)&(DD_RING-1);
@@ -94,9 +94,9 @@ static struct dd_frame steady_sample(const struct steady_voice *v,unsigned n,
    r+=interpolate(x.r,y.r,fraction)*(int32_t)v[s].gain;
   }
  }
- return (struct dd_frame){l/1024,r/1024};
+ return (struct dd_wide_frame){l/1024,r/1024};
 }
-static void interpolate_buffer(const struct dd_frame *ring,struct dd_frame *out,
+static void interpolate_buffer(const struct dd_frame *ring,struct dd_wide_frame *out,
                                uint32_t count,uint32_t pos,uint32_t fraction,
                                uint32_t step)
 {
@@ -107,20 +107,20 @@ static void interpolate_buffer(const struct dd_frame *ring,struct dd_frame *out,
    * interpolate that pair once, without per-frame phase multiplication. */
   if(fraction==32768&&count) {
    struct dd_frame x=ring[pos&(DD_RING-1)],y=ring[(pos+1)&(DD_RING-1)];
-   out[i++]=(struct dd_frame){x.l+((int32_t)y.l-x.l)/2,x.r+((int32_t)y.r-x.r)/2};
+   out[i++]=(struct dd_wide_frame){x.l+((int32_t)y.l-x.l)/2,x.r+((int32_t)y.r-x.r)/2};
    ++pos;
   }
   for(;i+1<count;i+=2,++pos) {
    struct dd_frame x=ring[pos&(DD_RING-1)],y=ring[(pos+1)&(DD_RING-1)];
-   out[i]=x;
-   out[i+1]=(struct dd_frame){x.l+((int32_t)y.l-x.l)/2,x.r+((int32_t)y.r-x.r)/2};
+   out[i]=(struct dd_wide_frame){x.l,x.r};
+   out[i+1]=(struct dd_wide_frame){x.l+((int32_t)y.l-x.l)/2,x.r+((int32_t)y.r-x.r)/2};
   }
-  if(i<count) out[i]=ring[pos&(DD_RING-1)];
+  if(i<count) {struct dd_frame x=ring[pos&(DD_RING-1)];out[i]=(struct dd_wide_frame){x.l,x.r};}
   return;
  }
  for(;i<count;i++) {
   struct dd_frame x=ring[pos&(DD_RING-1)],y=ring[(pos+1)&(DD_RING-1)];
-  out[i]=(struct dd_frame){interpolate(x.l,y.l,fraction),interpolate(x.r,y.r,fraction)};
+  out[i]=(struct dd_wide_frame){interpolate(x.l,y.l,fraction),interpolate(x.r,y.r,fraction)};
   fraction+=step;pos+=fraction>>16;fraction&=65535;
  }
 }
@@ -134,30 +134,31 @@ static void render_effect_chunks(struct dd_engine *e,int16_t *out,uint32_t count
   uint32_t n=count-offset;
   if(n>DD_EFFECT_CHUNK) n=DD_EFFECT_CHUNK;
   for(unsigned k=0;k<2;k++) {
-   memset(e->effect_sum,0,n*2*sizeof(*e->effect_sum));
+   memset(e->effect_sum[k],0,n*2*sizeof(e->effect_sum[k][0]));
    for(unsigned s=0;s<voices[k];s++) {
     const struct steady_voice *v=&voice[k][s];
     interpolate_buffer(v->ring,e->effect_frames,n,pos[k],fraction[k],step[k]);
     if(v->fx) bonsai_fx_process_buffer(v->fx,e->effect_frames,n);
     if(!v->gain) continue;
     for(uint32_t f=0;f<n;f++) {
-     e->effect_sum[2*f]+=(int32_t)e->effect_frames[f].l*(int32_t)v->gain;
-     e->effect_sum[2*f+1]+=(int32_t)e->effect_frames[f].r*(int32_t)v->gain;
+     e->effect_sum[k][2*f]+=e->effect_frames[f].l*(int32_t)v->gain;
+     e->effect_sum[k][2*f+1]+=e->effect_frames[f].r*(int32_t)v->gain;
     }
    }
-   for(uint32_t f=0;f<n;f++) {
-    int32_t l=e->effect_sum[2*f]/1024,r=e->effect_sum[2*f+1]/1024;
-    uint32_t i=2*(offset+f);
-    if(!k) {out[i]=(int16_t)l;out[i+1]=(int16_t)r;}
-    else {
-     out[i]=clamp((out[i]+l)*(int32_t)master/256,&e->clips);
-     out[i+1]=clamp((out[i+1]+r)*(int32_t)master/256,&e->clips);
-    }
-    if(running[k]&&f==n-1) e->deck[k].last=(struct dd_frame){l,r};
-   }
+   if(running[k]) e->deck[k].last=(struct dd_wide_frame){
+    e->effect_sum[k][2*(n-1)]/1024,e->effect_sum[k][2*(n-1)+1]/1024};
    if(running[k]) {
     fraction[k]+=n*step[k];pos[k]+=fraction[k]>>16;fraction[k]&=65535;
    }
+  }
+  /* Neither deck is narrowed before the two-deck sum and master/headroom.
+   * A full-scale high-pass transient can legitimately exceed int16 here. */
+  for(uint32_t f=0;f<n;f++) {
+   int32_t l=e->effect_sum[0][2*f]/1024+e->effect_sum[1][2*f]/1024;
+   int32_t r=e->effect_sum[0][2*f+1]/1024+e->effect_sum[1][2*f+1]/1024;
+   uint32_t i=2*(offset+f);
+   out[i]=clamp(l*(int32_t)master/256,&e->clips);
+   out[i+1]=clamp(r*(int32_t)master/256,&e->clips);
   }
  }
 }
@@ -198,7 +199,7 @@ static bool render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
   for(unsigned k=0;k<2;k++) e->deck[k].fraction=fraction[k];
   return true;
  }
- struct dd_frame last[2]={e->deck[0].last,e->deck[1].last};
+ struct dd_wide_frame last[2]={e->deck[0].last,e->deck[1].last};
  for(uint32_t f=0;f<count;f++) {
   int32_t l=0,r=0;
   for(unsigned k=0;k<2;k++) {
@@ -272,24 +273,24 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
      }
      if(v->current_gain<gain[k][s]) ++v->current_gain;
      else if(v->current_gain>gain[k][s]) --v->current_gain;
-     /* Wet history follows the unmuted source before gain, even while this
-      * stem is muted, so unmuting cannot replay a frozen old echo tail. */
+     /* Filter state follows the unmuted source before gain, even while muted,
+      * so unmuting cannot introduce a frozen filter-state discontinuity. */
      if(!v->current_gain&&!fx) continue;
      struct dd_frame a=v->ring[pos[k]&(DD_RING-1)],b=v->ring[(pos[k]+1)&(DD_RING-1)];
      int32_t l=interpolate(a.l,b.l,d->fraction);
      int32_t r=interpolate(a.r,b.r,d->fraction);
      if(fx) {
-      struct dd_frame processed=bonsai_fx_process(fx,(struct dd_frame){l,r});
+      struct dd_wide_frame processed=bonsai_fx_process(fx,(struct dd_frame){l,r});
       l=processed.l;r=processed.r;
      }
      dl+=l*v->current_gain; dr+=r*v->current_gain;
     }
     /* 12dB fixed headroom, then saturate the final two-deck bus. */
-    dl/=1024; dr/=1024; d->last=(struct dd_frame){dl,dr};
+    dl/=1024; dr/=1024; d->last=(struct dd_wide_frame){dl,dr};
     d->fraction+=step[k]; uint32_t advance=d->fraction>>16; d->fraction&=65535;
     pos[k]+=advance; available[k]-=advance;
    } else if(effects_active) {
-    /* Paused, missing or starved sources feed silence to effect tails. Their
+    /* Paused, missing or starved sources feed silence to filters. Their
      * output is not audible while transport is stopped, but state and effect
      * changes still advance at the same 48 kHz clock as the other deck. */
     for(unsigned s=0;s<4;s++) if(effect[k][s])

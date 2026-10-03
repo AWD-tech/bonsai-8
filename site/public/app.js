@@ -5,7 +5,7 @@ import { setupMatching } from './match.js?v=20261003-match-01';
 import { Device } from './device.js?v=20261002-bonsai-01';
 import { NAMES, time, clamp, wav, decodeControls } from './core.js';
 import { SP1Connection, selectedDeckControls } from './protocol.js?v=20261002-bonsai-01';
-import { LiveSP1Audio, deviceProgress } from './live-audio.js?v=20261002-bonsai-01';
+import { LiveSP1Audio, deviceProgress } from './live-audio.js?v=20261003-monitor-cancel-04';
 import { DEFAULT_BODY_HEIGHT } from './control-height.js?v=20261002-bonsai-01';
 import { MirrorTimeline, MIRROR_KEYS } from './mirror.js?v=20261002-bonsai-01';
 import { zip } from './vendor/fflate.js';
@@ -21,14 +21,18 @@ let libraryUI, browserMixer, matching; let browserConnected=false, matchingBusy=
 function gain(i,v){if(!browserConnected&&!hardwareState)audio.setGain(i,v);device?.setGain(i,v);$(`gain-${i}`).value=Math.round(v*100);$(`gain-value-${i}`).value=`${Math.round(v*100)}%`;}
 function updateMix(){for(let i=0;i<4;i++){gain(i,audio.gains[i]);for(const [type,values] of [['mute',audio.mutes],['solo',audio.solos]]){$(`${type}-${i}`).classList.toggle('active',values[i]);$(`${type}-${i}`).setAttribute('aria-pressed',String(values[i]));}}}
 for(let i=0;i<4;i++){$(`gain-${i}`).addEventListener('input',e=>gain(i,Number(e.target.value)/100));$(`mute-${i}`).onclick=()=>{audio.mute(i);updateMix();};$(`solo-${i}`).onclick=()=>{audio.solo(i);updateMix();};}
-let previousButtons=null, hardwareState=null;
-const liveAudio=new LiveSP1Audio(()=>{$('live-audio-status').textContent='SP–1 audio disconnected.';$('listen-sp1').textContent='Listen here';});
+let previousButtons=null, hardwareState=null, monitorRequest=0;
+const liveAudio=new LiveSP1Audio(()=>{++monitorRequest;$('live-audio-status').textContent='SP–1 audio disconnected.';$('listen-sp1').textContent='Listen here';updateListenAvailability();});
+function updateListenAvailability(){$('listen-sp1').disabled=hardwareState?.usb_capture!==1||liveAudio.busy;}
+function stopLiveMonitor(){++monitorRequest;liveAudio.stop();$('listen-sp1').textContent='Listen here';updateListenAvailability();}
 $('listen-sp1').onclick=async()=>{
- if(liveAudio.stream){liveAudio.stop();$('listen-sp1').textContent='Listen here';$('live-audio-status').textContent='Listening stopped. Device progress remains live.';return;}
+ if(liveAudio.busy||hardwareState?.usb_capture!==1)return;
+ if(liveAudio.stream){stopLiveMonitor();$('live-audio-status').textContent='Listening stopped. Device progress remains live.';return;}
+ const request=++monitorRequest;
  $('listen-sp1').disabled=true;
- try{audio.pauseAll();await liveAudio.start();$('listen-sp1').textContent='Stop listening';$('live-audio-status').textContent='Live stereo mix from SP–1 · 48 kHz';}
- catch(error){$('live-audio-status').textContent=error.message;notify(error.message);}
- finally{$('listen-sp1').disabled=!hardwareState?.usb_capture;}
+ try{audio.pauseAll();await liveAudio.start();if(request!==monitorRequest||!liveAudio.stream)return;$('listen-sp1').textContent='Stop listening';$('live-audio-status').textContent='Live stereo mix from SP–1 · 48 kHz';}
+ catch(error){if(request!==monitorRequest||error.name==='AbortError')return;$('live-audio-status').textContent=error.message;notify(error.message);}
+ finally{if(request===monitorRequest)updateListenAvailability();}
 };
 const mirrorTimeline=new MirrorTimeline(frame=>{
  if(frame){device?.setHardwareFrame(frame);}
@@ -163,7 +167,7 @@ async function mirrorDualDeck(state) {
  $('pitch-value').value=Number(nextPitch.toFixed(1));
  // Hardware monitoring never starts an unrelated browser song.
  audio.pauseAll();
- $('live-player').hidden=false;$('listen-sp1').disabled=state.usb_capture!==1||liveAudio.busy;
+ $('live-player').hidden=false;updateListenAvailability();
  if(!state.usb_capture)$('live-audio-status').textContent='Live audio and song progress need compatible Bonsai 8 firmware.';
  else if(firstStatus&&!liveAudio.stream&&!liveAudio.busy)$('live-audio-status').textContent='Playback positions are live. Choose Listen here for USB audio.';
  for(let k=0;k<2;k++){
@@ -179,10 +183,10 @@ const hardware = new SP1Connection((f,b,state)=>{
  if(state)return mirrorDualDeck(state);
  const legacy=decodeControls(f,b);let values=legacy.gains;if($('reverse-faders').checked)values.reverse();values.forEach((v,i)=>gain(i,$('invert-faders').checked?1-v:v));
  legacy.buttons.forEach((pressed,i)=>{device?.setButton(hardwareKeys[i],pressed);if(previousButtons&&pressed&&!previousButtons[i])control(hardwareKeys[i]);});previousButtons=legacy.buttons;
-},(message,connected=false)=>{browserConnected=connected;browserMixer.connected(connected);matching?.refresh();$('hardware-status').textContent=message;$('connect-open').classList.toggle('connected',connected);$('connect-label').textContent=connected?'Bonsai 8 connected':'Connect SP–1';$('compact-connect-label').textContent=connected?'Player connected':'Connect player';$('compact-connect').classList.toggle('connected',connected);$('load-deck').disabled=connected;$('connect').hidden=connected;$('disconnect').hidden=!connected;libraryUI?.state(connected);for(const id of ['master','pitch-down','pitch-up','reset-mix','play','loop','seek',...Array.from({length:4},(_,i)=>`gain-${i}`),...Array.from({length:4},(_,i)=>`mute-${i}`),...Array.from({length:4},(_,i)=>`solo-${i}`)])$(id).disabled=connected;if(!connected){hardwareState=null;$('mix-heading').textContent='Browser mix';liveAudio.stop();$('live-player').hidden=true;$('listen-sp1').textContent='Listen here';mirrorTimeline.reset();device?.setHardwareMode(false);$('hardware-deck').hidden=true;hardwareKeys.forEach(key=>device?.setButton(key,false));showBrowserDeck();}},packet=>{
+},(message,connected=false)=>{browserConnected=connected;browserMixer.connected(connected);matching?.refresh();$('hardware-status').textContent=message;$('connect-open').classList.toggle('connected',connected);$('connect-label').textContent=connected?'Bonsai 8 connected':'Connect SP–1';$('compact-connect-label').textContent=connected?'Player connected':'Connect player';$('compact-connect').classList.toggle('connected',connected);$('load-deck').disabled=connected;$('connect').hidden=connected;$('disconnect').hidden=!connected;libraryUI?.state(connected);for(const id of ['master','pitch-down','pitch-up','reset-mix','play','loop','seek',...Array.from({length:4},(_,i)=>`gain-${i}`),...Array.from({length:4},(_,i)=>`mute-${i}`),...Array.from({length:4},(_,i)=>`solo-${i}`)])$(id).disabled=connected;if(!connected){hardwareState=null;$('mix-heading').textContent='Browser mix';stopLiveMonitor();$('live-player').hidden=true;mirrorTimeline.reset();device?.setHardwareMode(false);$('hardware-deck').hidden=true;hardwareKeys.forEach(key=>device?.setButton(key,false));showBrowserDeck();}},packet=>{
  if(mirrorTimeline.push(packet,performance.now()))$('hardware-status').textContent='Mirror resynchronized after a connection delay.';
 });
-libraryUI=setupLibrary({connection:hardware,audio,sourceTitle:()=>audio.deck().media.name||songName,sourceBusy:()=>busy||importBusy||Boolean(matching?.busy),canUpload:()=>['demo','imported','separated','prepared'].includes(mode)&&!busy&&!importBusy&&!matching?.busy,notify,stopMonitor:()=>{liveAudio.stop();$('listen-sp1').textContent='Listen here';}});
+libraryUI=setupLibrary({connection:hardware,audio,sourceTitle:()=>audio.deck().media.name||songName,sourceBusy:()=>busy||importBusy||Boolean(matching?.busy),canUpload:()=>['demo','imported','separated','prepared'].includes(mode)&&!busy&&!importBusy&&!matching?.busy,notify,stopMonitor:stopLiveMonitor});
 $('connect').onclick=async()=>{
  $('connect').disabled=true;previousButtons=null;
  try{await audio.init();audio.pauseAll();await hardware.connect($('firmware-mode').value);if(hardware.mode==='dual')await libraryUI.refresh();notify(hardware.fullMirror?'Physical lights, faders and button presses are connected.':'Mixer connected. Bonsai 8 is needed to mirror physical lights and button presses.');}

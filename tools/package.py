@@ -45,7 +45,7 @@ def main():
  for directory in ['firmware','boards','tools','tests']:
   sources += [p for p in (ROOT/directory).rglob('*') if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.log']
  manifest={
-  'name':'Bonsai 8','version':version,'status':'Hardware-test candidate. See HARDWARE_TEST.md for version-specific measured results; packaging does not establish flashing or hardware verification.',
+  'name':'Bonsai 8','version':version,'effects':['filter'],'status':'Hardware-test candidate. See HARDWARE_TEST.md for version-specific measured results; packaging does not establish flashing or hardware verification.',
   'upstream_commit':'44ba1ecbec6c844dba7f47eacee94c53af8ab10d',
   'source_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
   'source_dirty':source_is_dirty(ROOT,sources),
@@ -54,7 +54,7 @@ def main():
   'application_address':'0x20000','initial_stack':hex(sp),'reset_vector':hex(reset),
   'binary_bytes':len(data),'ram_used_bytes':ram_used,'ram_available_bytes':262144,
   'binary_sha256':digest(binary),'automatic_storage_format':False,
-  'tests':['C ASan/UBSan: recorder SPSC ring, P14S encoder, two-stage metadata publication and preservation, eight independent FX, impulse response and exact bypass',
+  'tests':['C ASan/UBSan: recorder SPSC ring, P14S encoder, two-stage metadata publication and preservation, eight independent stereo high-pass filters, impulse response and exact bypass',
    'C engine ASan/UBSan: eight voices, independent transports, mute/gain ramps, shared-deck starvation, counter wrap, speed bounds, pickup, codecs, saturation',
    'Python: firmware-compatible PCM14 encoding, metadata preservation, bad-table rejection, real ffmpeg resampling, hardware USB discovery and robust diagnostics',
    'C ASan/UBSan: physical telemetry queue, tap edges, overflow, counter wrap, stereo capture ordering and bounds',
