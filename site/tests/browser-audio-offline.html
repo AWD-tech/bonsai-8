@@ -1,0 +1,32 @@
+<!doctype html><meta charset="utf-8"><title>Bonsai local browser audio verification</title>
+<style>body{font:16px system-ui;margin:36px;background:#eeeee8;color:#343a33}button{padding:12px 20px;font:inherit}pre{white-space:pre-wrap;line-height:1.7}</style>
+<h1>Offline Web Audio verification</h1><p>This temporary test uses generated constant signals. It does not connect to hardware or play through speakers.</p>
+<button id="run">Run actual Web Audio tests</button><pre id="result" role="status">Not run</pre>
+<script type="module">
+import {AudioEngine} from './audio.js';
+const out=document.getElementById('result');
+class TestContext extends OfflineAudioContext {async resume(){}}
+const check=(condition,message)=>{if(!condition)throw new Error(message);};
+function fixture(seconds=1){const ctx=new TestContext(2,Math.round(seconds*44100),44100);return {ctx,audio:new AudioEngine({contextFactory:()=>ctx})};}
+function constant(ctx,seconds,value){const buffer=ctx.createBuffer(2,Math.round(seconds*44100),44100);for(let c=0;c<2;c++)buffer.getChannelData(c).fill(value);return buffer;}
+const sample=(buffer,seconds,channel=0)=>buffer.getChannelData(channel)[Math.round(seconds*buffer.sampleRate)];
+document.getElementById('run').onclick=async()=>{
+ const lines=[];out.textContent='Running…';
+ try{
+  {
+   const {ctx,audio}=fixture();await audio.loadDeck(0,Array.from({length:4},()=>constant(ctx,1,.5)));await audio.loadDeck(1,Array.from({length:4},()=>constant(ctx,1,.25)));
+   audio.setVolume(1);audio.setDeckVolume(1,.5);audio.mute(0,0);await audio.playDeck(0,0);await audio.playDeck(1,0);
+   const rendered=await ctx.startRendering();lines.push(`Measured independent-bus PCM L=${sample(rendered,.5).toFixed(9)}, R=${sample(rendered,.5,1).toFixed(9)}; expected .250000000`);check(Math.abs(sample(rendered,.5)-.25)<1e-5,'Independent deck level/mute graph PCM differs from expected .25');check(Math.abs(sample(rendered,.5,1)-.25)<1e-5,'Stereo routing differs');lines.push('PASS independent A/B buses, per-stem mute, deck level and stereo master: PCM .25');
+  }
+  {
+   const {ctx,audio}=fixture();await audio.loadDeck(0,Array.from({length:4},()=>constant(ctx,1,1)));await audio.loadDeck(1,Array.from({length:4},()=>constant(ctx,1,1)));audio.setVolume(1);await audio.playDeck(0,0);await audio.playDeck(1,0);
+   const rendered=await ctx.startRendering();const data=rendered.getChannelData(0);let peak=0;for(const value of data)peak=Math.max(peak,Math.abs(value));check(peak<=1.000001&&peak>.1,'Eight full-scale stems exceed headroom or are silent');lines.push(`PASS eight correlated full-scale stems: peak ${peak.toFixed(6)}, no clipping`);
+  }
+  {
+   const {ctx,audio}=fixture(3);await audio.loadDeck(0,[constant(ctx,2,.8),constant(ctx,1,.4),null,null]);audio.setVolume(1);await audio.playDeck(0,0);const rendered=await ctx.startRendering();
+   check(Math.abs(sample(rendered,.5)-.15)<1e-5,'First stem period differs');check(Math.abs(sample(rendered,1.5)-.1)<1e-5,'Short stem must become silence during the song tail');check(Math.abs(sample(rendered,2.5)-.15)<1e-5,'Native audio-clock loop failed without UI ticks');lines.push('PASS padded short-stem silence and sample-clock loop without UI ticks');
+  }
+  out.textContent=lines.join('\n')+'\nALL 3 ACTUAL WEB AUDIO TESTS PASSED';out.dataset.result='pass';
+ }catch(error){out.textContent=lines.join('\n')+'\nFAIL '+error.message;out.dataset.result='fail';}
+};
+</script>

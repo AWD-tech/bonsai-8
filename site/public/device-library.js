@@ -18,7 +18,12 @@ export function validateIndex(meta){if(meta.length!==1024||view(meta).getUint32(
 export function validateExtended(x3){const d=view(x3);if(x3.length!==1536||d.getUint32(0,true)!==STORAGE.x3Magic||d.getUint16(4,true)!==1||d.getUint16(6,true)!==x3.slice(16,1040).reduce((sum,x)=>(sum+x)&65535,0))throw new Error('Extended song metadata is invalid. Repair it before changing songs.');return x3;}
 export function indexSongs(meta){validateIndex(meta);const d=view(meta);return Array.from({length:16},(_,i)=>({slot:i+1,present:[...meta.slice(16+i*44,20+i*44)],frames:d.getUint32(12+i*44,true),title:null})).filter(s=>s.present.some(Boolean));}
 export function deleteSongIndex(meta,slot){validateIndex(meta);const out=meta.slice(),i=slotIndex(slot);out.fill(0,16+i*44,20+i*44);return out;}
+export function validatePreparedStems(stems){
+ if(!Array.isArray(stems)||stems.length!==4||stems.some(s=>!s||!Number.isInteger(s.frames)||s.frames<0||s.frames>11522560||s.blocks!==Math.ceil(s.frames/140)||s.blocks>STORAGE.trackBlocks||!(s.data instanceof Uint8Array)||s.data.length!==s.blocks*512)||!stems.some(s=>s.frames))throw new Error('Prepared stems are incomplete or exceed the supported eight-minute capacity.');
+ return stems;
+}
 export function publishSongIndex(meta,table,slot,stems){
+ validatePreparedStems(stems);
  validateIndex(meta);validateExtended(table);const i=slotIndex(slot),out=meta.slice(),x3=table.slice(),m=view(out),x=view(x3),length=Math.max(...stems.map(s=>s.frames));
  if(stems.length!==4||!length||length>11522560||stems.some(s=>!Number.isInteger(s.frames)||s.frames<0||s.frames>length||s.blocks!==Math.ceil(s.frames/140)||s.blocks>STORAGE.trackBlocks))throw new Error('Prepared stems exceed the supported eight-minute capacity.');
  if(out.slice(16+i*44,20+i*44).some(Boolean))throw new Error('That song slot is occupied. Delete it explicitly or choose an empty slot.');
@@ -49,7 +54,7 @@ export class DeviceLibrary {
  constructor(connection,{onProgress=()=>{},checkpointStore=globalThis.localStorage}={}){this.connection=connection;this.onProgress=onProgress;this.store=checkpointStore;}
  async run(work){return this.connection.withTransfer(async io=>{validateLayout(await io.exchange(bytes('SP1XFER!P'),28));let success=false;try{const result=await work(this.transport(io));success=true;return result;}finally{if(success)await io.exchange(bytes('X'),1).then(reply=>{if(reply[0]!==120)throw new Error('The player did not exit transfer mode.');});}});}
  transport(io){const ack=async(request,expected)=>{const reply=await io.exchange(request,1);if(reply[0]!==expected)throw new Error('The player rejected a storage operation. The song was not published.');};return {
- read:async block=>{if(!Number.isInteger(block)||block<0||block>=STORAGE.base+16*4*STORAGE.trackBlocks)throw new Error('Read outside song storage.');const reply=await io.exchange(join(bytes('R'),u32(block)),513);if(reply[0]!==114)throw new Error('Audio read failed.');return reply.slice(1);},
+ read:async block=>{if(!Number.isInteger(block)||block<0||block>=STORAGE.base+16*4*STORAGE.trackBlocks)throw new Error('Read outside song storage.');const reply=await io.exchange(join(bytes('R'),u32(block)),513);if(reply.length!==513||reply[0]!==114)throw new Error('Audio read failed.');return reply.slice(1);},
  write:async(block,data)=>{if(data.length!==512||!Number.isInteger(block)||block<0||block>=STORAGE.base+16*4*STORAGE.trackBlocks)throw new Error('Invalid storage write.');await ack(join(bytes('B'),u32(block),new Uint8Array([1]),data),98);},flush:()=>ack(bytes('F'),102)};}
  async snapshot(dev){const meta=join(await dev.read(0),await dev.read(1)),x3=join(await dev.read(3),await dev.read(4),await dev.read(5));validateIndex(meta);validateExtended(x3);return {meta,x3};}
  async list(){return this.run(async dev=>indexSongs((await this.snapshot(dev)).meta));}
@@ -63,10 +68,10 @@ export class DeviceLibrary {
  }
  async remove(slot){return this.run(async dev=>{const {meta}=await this.snapshot(dev);if(!indexSongs(meta).some(s=>s.slot===slot))throw new Error('That song slot is already empty.');await this.publish(dev,deleteSongIndex(meta,slot));});}
  async upload(slot,stems){
- slotIndex(slot);const signature=await sha256(join(...stems.map(s=>join(u32(s.frames),s.data)))),key=`bonsai8-upload-${slot}-${signature}`;
+ slotIndex(slot);validatePreparedStems(stems);const signature=await sha256(join(...stems.map(s=>join(u32(s.frames),s.data)))),key=`bonsai8-upload-${slot}-${signature}`;
  return this.run(async dev=>{const {meta,x3}=await this.snapshot(dev),next=publishSongIndex(meta,x3,slot,stems),identity=await sha256(join(meta,x3));let checkpoint;
  try{checkpoint=JSON.parse(this.store?.getItem(key)||'null');}catch{}
- if(checkpoint?.identity!==identity)checkpoint={identity,verified:[0,0,0,0]};const total=stems.reduce((n,s)=>n+s.blocks,0);let done=0;
+ if(checkpoint?.identity!==identity||!Array.isArray(checkpoint.verified)||checkpoint.verified.length!==4||checkpoint.verified.some((n,s)=>!Number.isInteger(n)||n<0||n>stems[s].blocks))checkpoint={identity,verified:[0,0,0,0]};const total=stems.reduce((n,s)=>n+s.blocks,0);let done=0;
  for(let s=0;s<4;s++){const stem=stems[s],base=STORAGE.base+((slot-1)*4+s)*STORAGE.trackBlocks,resume=Math.min(stem.blocks,Math.max(0,Number(checkpoint.verified[s])||0));
  // Before trusting a saved checkpoint, compare its whole verified prefix on
  // the connected player. Matching VID/PID alone does not identify a device.
@@ -74,7 +79,7 @@ export class DeviceLibrary {
  for(let b=resume;b<stem.blocks;b++){await dev.write(base+b,stem.data.slice(b*512,(b+1)*512));checkpoint.verified[s]=b+1;done++;if(!(b%32)||b===stem.blocks-1){try{this.store?.setItem(key,JSON.stringify(checkpoint));}catch{}this.onProgress(done/total,`Uploading stem ${s+1} of 4`);}}
  }
  await dev.flush();for(let s=0;s<4;s++){const stem=stems[s],base=STORAGE.base+((slot-1)*4+s)*STORAGE.trackBlocks;for(const b of new Set([0,Math.floor(stem.blocks/2),stem.blocks-1]))if(b>=0&&b<stem.blocks&&!equal(await dev.read(base+b),stem.data.slice(b*512,(b+1)*512)))throw new Error('Audio verification failed. The song remains unpublished.');}
- await this.publish(dev,next.meta,next.x3);try{this.store?.removeItem(key);}catch{}return slot;
+ await this.publish(dev,next.meta,next.x3);try{this.store?.removeItem(key);}catch{}return {slot,audio_id:signature,present:stems.map(s=>s.frames?1:0),frames:Math.max(...stems.map(s=>s.frames))*2,title:null};
  });
  }
  async export(slot){return this.run(async dev=>{const {meta,x3}=await this.snapshot(dev),i=slotIndex(slot),m=view(meta),x=view(x3),song=indexSongs(meta).find(s=>s.slot===slot);if(!song)throw new Error('Song is no longer present.');const result=[];

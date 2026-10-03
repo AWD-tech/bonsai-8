@@ -2,13 +2,13 @@
 
 Two songs. Eight stems. Your mix.
 
-User guide / Version 0.4.0 / 2 October 2026
+User guide / Firmware 0.4 series and companion site / 3 October 2026
 
 Bonsai 8 turns the SP-1 into a two-deck stem player. Choose a song for **Deck A** and another for **Deck B**. Bring their voices, drums and instruments together, shape each stem, and record the result on the player.
 
 The four faders control one deck at a time. Tap **FUNCTION** to change decks. The other deck keeps playing with the levels you left it at.
 
-**Release status:** 0.4.0 is a test candidate. Eight-stem playback with effects, USB audio and recording still needs hardware verification. This guide describes its controls; older firmware may behave differently. Opening the website does not update your player.
+**Release status:** The 0.4 series is under hardware testing. Read the exact version and test status in the website installer before updating. This guide describes the implemented controls; effects, USB audio and recording still need their version-specific checks. Opening the website does not update your player.
 
 ### Your first playback
 
@@ -194,9 +194,28 @@ Open [sp-1.xyz](https://sp-1.xyz/). The site is a browser instrument and a compa
 
 Already have stems? Choose **Have stems?** and assign your files to Vocals, Drums, Bass and Other. Use a common starting point and keep any leading silence so they stay aligned. Missing stems stay silent. The studio demo is another quick way to try the browser mixer.
 
-On a keyboard, Space plays or pauses the browser mixer; keys 1-4 mute its stems. These shortcuts are inactive while the physical player is connected.
+### Mix two browser songs
+
+Choose Deck A or Deck B before importing a song. The four stem controls apply to the selected deck. Use each deck's song selector to load any song kept in this tab, its Play button to start or pause it, and its Deck level to balance it against the other song. Cue returns that deck to the beginning. Changing one deck leaves the other playing.
+
+**Try both demos** loads two generated songs for practice. **Play both** starts both; **Pause both** stops both. Remove an unused song from the session to free memory. The session library is temporary and disappears when the page is reloaded, so export work you want to keep.
+
+On a keyboard, A and B select a deck, Space plays or pauses it, Shift + Space controls both, and keys 1-4 mute its stems. Shortcuts do not override typing in a field and are inactive while the physical player is connected.
 
 Separation runs on your device. Audio is not uploaded to a server. Browser files must be under 200 MB each and at most ten minutes; songs sent to the physical player have the shorter limit on the next page. Export stems saves the prepared source stems, not a recording of your browser mix.
+
+The file-size limit bounds decoding and separation memory: a compressed song expands into audio samples, four output stems and processing buffers. The browser mixer also limits retained decoded audio to 768 MiB. That budget does not include every temporary allocation or the separation model. Use shorter files and remove unused session songs if memory is exhausted.
+
+### Match tempo, key and individual stem pitch
+
+1. Load songs on both browser decks and open **Match songs**. Choose the master deck whose tempo and key you want to keep.
+2. Choose **Analyze both songs**. Check the BPM and first-beat positions. Use Half or Double if the estimate follows the wrong pulse, or enter a corrected value. Key can remain Unknown; do not treat an estimate as certain.
+3. Keep **Match the other deck's tempo to the master** enabled to prepare the follower at the master's tempo. Enable key matching only after checking both keys. It shifts vocals, bass and other; drums retain their own pitch setting.
+4. Set each follower stem's semitone offset. For example, +2 raises only its chosen stem by two semitones while preserving the prepared song's duration. These offsets add to any key-matching shift.
+5. Choose **Prepare Deck A** or **Prepare Deck B**. The finished song is selected for export/upload, and its original remains in the tab's library. Cancel leaves the existing songs intact.
+6. Choose **Align on next beat** to start or align the two grids on the browser audio clock. Listen and correct the grids if needed. Export the selected prepared stems, or connect the player and upload them to an empty slot.
+
+This is browser preparation, not live automatic matching on a disconnected SP-1. Prepared files can play on the physical player afterward, but physical starts still need manual timing. A fixed beat grid cannot follow changing tempo. Pitch processing can soften transients or change vocal tone; it does not preserve formants or turn a major song into a minor arrangement. The normal speed/pitch rocker still changes timing and pitch together.
 
 ### Connect the player
 
@@ -211,7 +230,7 @@ USB audio is the combined mix, not eight separate input channels. The physical m
 
 ## 07 / Manage songs
 
-Connect Bonsai 8, then use **On your player**. It lists occupied song slots and their lengths. Songs may appear as Song 1, Song 2 and so on because the player's library does not store their original filenames.
+Connect Bonsai 8, then use **On your player**. It lists occupied song slots and their lengths. A successful site upload keeps its source title for that connection. Current firmware does not store original filenames or a durable content identity, so reconnecting can show Song 1, Song 2 and so on. The site does not guess names from reused slots.
 
 ### Choose any song for either deck
 
@@ -226,7 +245,7 @@ Use **Load A** or **Load B** beside a song. That deck stops and cues the chosen 
 
 The player has **16 song slots**, with up to four stems in each. Uploads are limited to about eight minutes. Use matching starting points; shorter stems are padded with silence. The player itself does not separate a mixed song into instruments.
 
-Upload sends the prepared stems, not your temporary browser fader, mute or pitch settings. Keep a copy of the original stems on your computer.
+Upload sends the selected prepared stems, including completed Match songs tempo and per-stem pitch processing. It does not include temporary browser fader, mute, solo, deck-level or tape-speed settings. Keep a copy of the original stems on your computer.
 
 ### Export or delete
 

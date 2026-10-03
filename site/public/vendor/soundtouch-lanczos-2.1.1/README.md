@@ -1,0 +1,43 @@
+# @soundtouchjs/interpolation-strategy-lanczos
+
+Lanczos interpolation strategy plugin for SoundTouchJS.
+
+[I accept cash](https://paypal.me/cutterbl?locale.x=en_US) if you like what's been done.
+
+Part of the [SoundTouchJS](https://github.com/cutterbl/SoundTouchJS) monorepo — for more information and so much more.
+
+## Usage
+
+```ts
+import { registerInterpolationStrategy, SoundTouch } from '@soundtouchjs/core';
+import { registerLanczosStrategy } from '@soundtouchjs/interpolation-strategy-lanczos';
+
+registerLanczosStrategy({ registerInterpolationStrategy });
+
+const st = new SoundTouch({
+  interpolationStrategy: 'lanczos',
+});
+
+st.setInterpolationStrategyParams({ zeroCrossings: 6 });
+```
+
+## Params
+
+- `zeroCrossings` (default `4`, normalized to `2..8`)
+- `normalize` (default `false`) — when true, kernel weights are normalized so they sum to 1
+
+## Related docs
+
+- Core interpolation registration API: [https://cutterscrossing.com/SoundTouchJS/?path=/docs/interpolation-strategies-strategy-plugin-authoring--docs](https://cutterscrossing.com/SoundTouchJS/?path=/docs/interpolation-strategies-strategy-plugin-authoring--docs)
+- Core interpolation strategy overview: [https://cutterscrossing.com/SoundTouchJS/?path=/docs/interpolation-strategies--docs](https://cutterscrossing.com/SoundTouchJS/?path=/docs/interpolation-strategies--docs)
+
+## Exports
+
+- `lanczosKernel`: Interpolation kernel implementation.
+- `lanczosStrategy`: Strategy descriptor with id `lanczos`.
+- `registerLanczosStrategy`: Helper that registers `lanczosStrategy` into a compatible registry.
+- `lanczosStrategy.defaultParams`: Runtime defaults for strategy params.
+
+## License
+
+MPL-2.0 — see [LICENSE](../../LICENSE) for details.

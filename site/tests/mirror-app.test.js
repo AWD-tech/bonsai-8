@@ -7,18 +7,19 @@ import * as live from '../public/live-audio.js';
 import * as mirror from '../public/mirror.js';
 import * as heights from '../public/control-height.js';
 import * as protocol from '../public/protocol.js';
+import {AudioEngine} from '../public/audio.js';
 
 // Run the real application callback/frame loop with rendering and DOM at their boundary.
 function appHarness(){
- const elements=new Map();let device,connection,now=100;
+ const elements=new Map();let device,connection,audio,now=100;
  const node=()=>({value:0,hidden:false,classList:{toggle(){},add(){},remove(){}},setAttribute(){},addEventListener(){},getContext(){return {clearRect(){},beginPath(){},moveTo(){},lineTo(){},stroke(){}}}});
  const document={getElementById(id){if(!elements.has(id))elements.set(id,node());return elements.get(id);},querySelectorAll(){return [];},querySelector(){return null;},addEventListener(){}};
- class Audio {constructor(){Object.assign(this,{gains:[1,1,1,1],mutes:[false,false,false,false],solos:[false,false,false,false],buffers:[],volume:.75,speed:1,duration:0,playing:false});}setGain(i,v){this.gains[i]=v;}setVolume(v){this.volume=v;}async rate(p){this.speed=2**(p/12);}tick(){}position(){return 0;}pause(){this.playing=false;}}
+
  class Device {constructor(_,events){device=this;this.events=events;this.targets=[];this.buttons={};}setGain(i,v){if(!this.hardwareMode)this.targets[i]=v;}setControlHeight(){}setBodyHeight(){}setButton(k,v){this.buttons[k]=v;}lights(values){this.leds=[...values];}setHardwareFrame(f){this.hardwareFrame=f;this.targets=f.faders;this.buttons=f.buttons;this.leds=f.trackLeds;this.statusLeds=f.statusLeds;}setHardwareMode(on){this.hardwareMode=on;}}
  class Connection{constructor(onControls,onStatus,onMirror){connection=this;this.onControls=onControls;this.onStatus=onStatus;this.onMirror=onMirror;}}
- const context=vm.createContext({...core,...protocol,...live,...mirror,...heights,setupLibrary:()=>({state(){},telemetry(){},refresh(){},controls(){}}),localStorage:{getItem(){return null;},setItem(){}},document,AudioEngine:Audio,Device,SP1Connection:Connection,navigator:{serial:{addEventListener(){}}},performance:{now:()=>now},console,setTimeout,clearTimeout,setInterval,Uint8Array,zip(){}});
+ const context=vm.createContext({...core,...protocol,...live,...mirror,...heights,setupMatching:()=>({refresh(){},busy:false}),setupBrowserMixer:options=>{audio=options.audio;return {sync(){},connected(on){if(on)audio.pauseAll();},select(index){audio.select(index);options.onSelect();}};},setupLibrary:()=>({state(){},telemetry(){},refresh(){},controls(){}}),localStorage:{getItem(){return null;},setItem(){}},document,AudioEngine,Device,SP1Connection:Connection,navigator:{serial:{addEventListener(){}}},performance:{now:()=>now},console,setTimeout,clearTimeout,setInterval,Uint8Array,zip(){}});
  vm.runInContext(readFileSync(new URL('../public/app.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,''),context);
- return {device,connection,frame(ms=100){now+=ms;device.events.frame();},elements};
+ return {device,connection,audio,frame(ms=100){now+=ms;device.events.frame();},elements};
 }
 const state={firmware:'sp1-dual-deck-0.3',deck:0,master:64,gains:[256,256,256,256,0,0,0,0],mute:[1,0],playing:[1,0],speed:[65536,65536],slots:[1,2],mirror:1};
 // A physical PLAY tap has already released while the song continues playing.
@@ -39,4 +40,18 @@ test('USB audio errors remain visible while hardware status continues polling',a
  assert.match(error,/USB audio needs/);
  await app.connection.onControls(null,null,s);
  assert.equal(app.elements.get('live-audio-status').textContent,error,'status polls must preserve audio failure details');
+});
+
+test('physical monitoring pauses both local decks without replacing their saved gains, speed or buffers',async()=>{
+ const app=appHarness(),a=app.audio;
+ a.decks[0].gains=[.2,.3,.4,.5];a.decks[1].gains=[.8,.7,.6,.5];
+ a.decks[0].speed=1.2;a.decks[1].speed=.9;
+ const first={duration:10,getChannelData:()=>new Float32Array(10)};a.decks[0].buffers=[first];a.decks[0].media.name='Local song';
+ app.connection.onStatus('Connected',true);
+ await app.connection.onControls(null,null,{...state,master:12,gains:[256,256,256,256,256,256,256,256],speed:[65536,81920]});
+ assert.deepEqual(a.decks[0].gains,[.2,.3,.4,.5]);assert.deepEqual(a.decks[1].gains,[.8,.7,.6,.5]);
+ assert.equal(a.decks[0].speed,1.2);assert.equal(a.decks[1].speed,.9);assert.equal(a.decks[0].buffers[0],first);
+ app.connection.onStatus('Disconnected',false);
+ assert.equal(app.elements.get('song-name').textContent,'Local song');
+ assert.equal(a.decks[0].playing,false);assert.equal(a.decks[1].playing,false);
 });

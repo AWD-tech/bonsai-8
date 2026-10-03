@@ -66,7 +66,8 @@ def main():
         elif line.startswith('## '):
             story.extend([PageBreak(), Paragraph(inline(line[3:]), styles['ManualSection'])])
         elif line.startswith('### '):
-            if line[4:] in ('Record the mix without a computer', 'Four small side status LEDs'):
+            if line[4:] in ('Record the mix without a computer', 'Four small side status LEDs',
+                            'Match tempo, key and individual stem pitch'):
                 story.append(PageBreak())
             story.append(Paragraph(inline(line[4:]), styles['ManualSub']))
         elif line.startswith('```'):

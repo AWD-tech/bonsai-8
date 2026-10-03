@@ -5,5 +5,8 @@
   "bytes": 104848,
   "sha256": "81381d9ed34a52f357275f6f70e39c939f7eb69005de8bf9a0db414eb3960bae",
   "application_address": 131072,
-  "file": "bonsai-8-0.4.0.bin"
+  "file": "bonsai-8-0.4.0.bin",
+  "known_issues": [
+    "Heavy effects and USB monitoring can cause playback stuttering."
+  ]
 }

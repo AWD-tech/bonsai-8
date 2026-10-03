@@ -42,3 +42,78 @@
 /* Keep help links readable and reachable at every viewport width. */
 .footer{height:auto;min-height:84px;padding:18px 4%;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 28px}.footer nav{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px}.footer a,.footer button{display:inline-flex;align-items:center;min-height:44px;font-size:12px;white-space:nowrap}.footer a{text-decoration:underline;text-underline-offset:4px;text-decoration-color:#a7ae9b}.footer a:hover{color:var(--accent)}
 @media(max-width:760px){.footer{padding:18px 24px;gap:4px}.footer nav{width:100%;gap:8px 24px}.footer a,.footer button{font-size:12px}}
+
+/* One workflow: load beside the model, then mix across the full page. */
+main{display:block;max-width:1320px;width:calc(100% - 80px);min-height:0;padding:32px 0 28px}
+.player-row{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:44px;align-items:start;padding-bottom:24px}
+.instrument{min-width:0;min-height:0;padding:0;border:0;overflow:visible}
+.stage-top h1{font-size:clamp(30px,3.2vw,42px);line-height:1.13;letter-spacing:-1.4px}
+#stage{position:relative;inset:auto;height:340px;width:100%;margin:0;overflow:hidden}
+.stage-footer{margin:0;gap:12px;min-height:44px;flex-wrap:wrap}
+.interaction-hint{line-height:1.5;max-width:none}
+.view-switch select,.view-switch button{min-height:36px}
+.load-panel{min-width:0;padding-top:8px}
+.load-panel .section-label{margin-bottom:14px;justify-content:space-between}
+.load-destination{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.load-destination select{color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:4px;font-size:12px;min-height:36px;padding:5px 8px}
+.dropzone{min-height:184px;padding:24px 16px;border-radius:7px}
+.dropzone strong{font-size:15px}.dropzone>span:not(.upload-symbol){font-size:12px}.dropzone small{font-size:11px}
+.load-actions{gap:12px;align-items:center;margin-top:6px}.load-actions button{min-height:44px;font-size:12px}
+.connect-entry{display:flex;align-items:center;justify-content:space-between;gap:14px;border-top:1px solid var(--line);padding-top:18px;margin-top:16px}
+.connect-entry h2{font-size:14px}.connect-entry p{font-size:12px;line-height:1.5;color:var(--muted);margin:6px 0 0;max-width:19ch}.connect-entry button{font-size:12px;min-height:44px;white-space:nowrap}
+.workspace{display:block;min-width:0;padding:24px 0 0;border-top:1px solid var(--line)}
+.live-player{margin:0 0 24px;padding-top:0;border-top:0}
+.mix-section{margin:0;padding:22px 0 0;border:0}
+.mix-section .section-label{margin-bottom:10px;justify-content:space-between}
+.micro-label{font-size:12px;white-space:normal}
+.selected-song{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:18px}
+.song-info span{font-size:14px;max-width:none;white-space:normal;overflow-wrap:anywhere;line-height:1.45}.song-info small{font-size:12px;line-height:1.5;margin-top:3px}
+.loop-control{display:flex;gap:7px;align-items:center;min-height:44px;flex:none;padding:4px 10px;border:1px solid var(--line);border-radius:4px;font-size:12px;color:var(--muted)}
+.loop-control.active{color:var(--ink);background:#e3e6db;border-color:#adb59f}.loop-control .ui-icon{width:18px;height:18px}
+#tracks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px}
+.track{min-width:0;margin:0}.track-heading{gap:7px;min-height:32px;flex-wrap:wrap}.track-name{font-size:12px}.track-level{font-size:11px}
+.track-buttons{margin-left:3px;gap:4px}.track-buttons button{width:30px;height:30px;font-size:11px}
+.track-slider{display:flex;flex-direction:column;gap:5px;align-items:stretch}.track-wave{width:100%;height:30px;flex:none}.track-slider input{width:100%;min-width:0;height:32px;flex:none;margin:0}
+.mix-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(250px,.6fr);gap:32px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.mix-footer{margin:0;padding:0;border:0;gap:16px}.mix-footer .text-button{font-size:12px;min-height:44px}
+.pitch-control{font-size:12px;gap:8px}.pitch-control button{width:34px;height:36px;font-size:15px}.pitch-control output,.pitch-control small{font-size:12px}
+.master-row{margin:0;font-size:12px}.master-row input{min-width:0;height:36px}.master-row output{font-size:12px}
+.mix-help{font-size:12px;line-height:1.6;margin:10px 0 0;max-width:78ch}
+.library-export{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:36px;border-top:1px solid var(--line);padding-top:24px;margin-top:24px;align-items:start}
+.device-library,.save-section{margin:0;padding:0;border:0;min-width:0}
+.device-library .section-label,.save-section .section-label{margin-bottom:12px}
+#device-songs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px}
+.device-song{min-width:0}.device-song-heading{flex-wrap:wrap}.device-song-actions button{font-size:12px;min-height:36px;padding:6px 10px}
+.device-library p,.device-library small{font-size:12px}.export-button{font-size:12px;min-height:44px}.export-button small{font-size:11px}.save-section p{font-size:12px;line-height:1.6}
+.privacy{margin:24px 0 0;padding:0;font-size:12px}
+@media(max-width:1050px){
+ main{width:calc(100% - 48px);padding-top:28px}.player-row{grid-template-columns:minmax(0,1fr) 310px;gap:28px}#stage{height:320px}.stage-top h1{font-size:32px}
+ #tracks{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 28px}.library-export{grid-template-columns:minmax(0,1fr) 310px;gap:28px}
+}
+@media(max-width:760px){
+ main{width:calc(100% - 40px);padding:24px 0}.player-row{grid-template-columns:1fr;gap:22px;padding-bottom:22px}.instrument{padding:0;min-height:0;border:0}.stage-top h1{font-size:32px}#stage{height:310px}
+ .load-panel{padding:0}.dropzone{min-height:150px;padding:18px 14px}.dropzone small{margin-top:10px}.connect-entry{margin-top:6px;padding-top:12px}.connect-entry p{max-width:none}
+ .workspace{display:block;padding:22px 0 0}.library-export{grid-template-columns:1fr;gap:24px}.mix-controls{grid-template-columns:1fr;gap:10px}.master-row{max-width:none}.mix-help{margin-top:12px}
+ .view-switch select,.view-switch button{min-height:40px}.track-buttons button{width:36px;height:36px}.track-slider input{height:36px}.pitch-control button{width:40px;height:40px}
+ #device-songs{grid-template-columns:1fr}.device-song-actions button{min-height:44px}
+}
+@media(max-width:480px){
+ main{width:calc(100% - 32px);padding-top:22px}.stage-top h1{font-size:30px}#stage{height:292px}.stage-footer{gap:8px}.interaction-hint{font-size:10px;max-width:140px}
+ #tracks{grid-template-columns:1fr;gap:15px}.track-heading{gap:9px;flex-wrap:nowrap}.track-buttons button{width:40px;height:40px}.track-slider{flex-direction:row;gap:14px;align-items:center}.track-wave{width:42%;height:26px}.track-slider input{width:auto;flex:1;height:40px}
+ .selected-song{align-items:flex-start;gap:10px}.song-info span{font-size:13px}.song-info small{font-size:11px}.loop-control{min-height:40px;padding:4px 8px}
+ .pitch-control{gap:7px;font-size:11px}.pitch-control>span{margin-right:0}.mix-footer .text-button{font-size:11px}.load-destination select{min-height:40px}
+ .library-export{margin-top:20px;padding-top:20px}
+}
+
+/* A single chevron and inset keeps every native select visually aligned. */
+:root{--select-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1.5 2 4.5 4 4.5-4' fill='none' stroke='%23343a33' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
+select:not([multiple]){appearance:none;-webkit-appearance:none;min-height:40px;line-height:1.35;padding-right:38px!important;background-image:var(--select-chevron)!important;background-repeat:no-repeat!important;background-size:12px 8px!important;background-position:right 13px center!important}
+.connect-button{display:inline-grid;grid-template-columns:6px minmax(0,1fr) 18px;align-items:center;gap:10px;min-height:44px;line-height:1.2}
+.connect-button .status-dot{display:block;width:6px;height:6px;margin:0;align-self:center}
+#connect-label{display:block;text-align:left;line-height:1.2}
+.connect-button .usb-icon{display:block;width:18px;height:18px;margin:0;padding:0;align-self:center}
+.compact-connect{display:inline-flex;align-items:center;justify-content:center;gap:8px;line-height:1.2}
+.compact-connect .connection-icon{display:block;width:16px;height:16px;flex:none;margin:0}
+.compact-connect.connected .connection-icon{color:#659657}
+@media(max-width:480px){.connect-button{gap:8px;padding:10px 9px}.connect-button .usb-icon{display:block}.compact-connect{gap:7px}select:not([multiple]){min-height:44px}}
+@media(forced-colors:active){select:not([multiple]){appearance:auto;background-image:none!important;padding-right:8px!important}}
