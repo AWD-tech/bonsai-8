@@ -64,6 +64,10 @@ struct dd_source {
 };
 static struct dd_source dd_src[2][4];
 static _Atomic int dd_request[2], dd_slot[2];
+/* Latest song choice survives the storage thread consuming dd_request before
+ * the fade/read/load has published dd_slot. Otherwise a second wheel gesture
+ * during that interval chooses the same next song again. */
+static _Atomic int dd_browse_slot[2];
 static _Atomic uint32_t dd_position[2],dd_length[2];
 static _Atomic uint32_t dd_storage_ok, dd_errors, dd_flush_req;
 static uint32_t dd_capacity, dd_read_errors, dd_bad_blocks;
@@ -77,10 +81,16 @@ static struct dd_frame dd_decoded[DD_MAX_DECODE];
 static struct dd_pickup dd_pick[4];
 static _Atomic bool dd_halted;
 
+static void dual_request_song(unsigned deck,int slot)
+{
+ atomic_store(&dd_browse_slot[deck],slot);
+ atomic_store(&dd_request[deck],slot);
+}
+
 static void dual_init(void)
 {
  dd_init(&dd);bonsai_fx_init(&dd_fx);dd.fx=&dd_fx;bonsai_record_init(&dd_rec);atomic_init(&dd_record_slot,-1);
- for(int k=0;k<2;k++) {atomic_init(&dd_request[k],-1);atomic_init(&dd_slot[k],-1);}
+ for(int k=0;k<2;k++) {atomic_init(&dd_request[k],-1);atomic_init(&dd_slot[k],-1);atomic_init(&dd_browse_slot[k],-1);}
  atomic_init(&dd_storage_ok,0);atomic_init(&dd_errors,0);atomic_init(&dd_flush_req,0);
  for(int s=0;s<4;s++) dd_pick[s]=(struct dd_pickup){-1,true};
 }
@@ -205,10 +215,13 @@ static bool dual_fill(unsigned k,unsigned s)
 static void dual_status(void)
 {
  /* Called only in response to a host request, on the storage thread. */
- char line[1408];uint32_t fx_clips=0;
+ char line[1472];uint32_t fx_clips=0;
+ unsigned key=irq_lock();
+ uint32_t audio_total=g_dual_audio_us_total,audio_blocks=g_dual_audio_blocks;
+ irq_unlock(key);
  for(unsigned i=0;i<8;i++) fx_clips+=dd_fx.voice[i].clipped;
  int n=snprintf(line,sizeof(line),
-  "{\"firmware\":\"bonsai-8-0.4.1\",\"mirror\":1,\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
+  "{\"firmware\":\"bonsai-8-0.4.2\",\"mirror\":1,\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"audio_us_total\":%u,\"audio_blocks\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
   dd_usb_capture_on,dd_usb_packets,dd_usb_audio.underruns,dd_usb_audio.overflows,dd_usb_send_errors,
   atomic_load(&dd_position[0]),atomic_load(&dd_position[1]),atomic_load(&dd_length[0]),atomic_load(&dd_length[1]),
   atomic_load(&dd_record_state),atomic_load(&dd_record_slot)+1,atomic_load(&dd_rec.source_frames)/2,atomic_load(&dd_record_error),
@@ -217,7 +230,7 @@ static void dual_status(void)
   fx_clips,atomic_load(&dd_storage_ok),dd_selected,atomic_load(&dd_slot[0])+1,atomic_load(&dd_slot[1])+1,
   atomic_load(&dd.deck[0].playing),atomic_load(&dd.deck[1].playing),
   dd.deck[0].underruns,dd.deck[1].underruns,dd_read_errors,dd_bad_blocks,atomic_load(&dd_errors),dd.clips,
-  g_audio_us_max,g_i2s_wfail_cnt,emmc_crc_rd_errs,g_m71_as,g_m71_wu,g_m71_rt,g_m71_fb,g_resetreas,g_last_fault_reason,atomic_load(&dd.master),
+  g_audio_us_max,audio_total,audio_blocks,g_i2s_wfail_cnt,emmc_crc_rd_errs,g_m71_as,g_m71_wu,g_m71_rt,g_m71_fb,g_resetreas,g_last_fault_reason,atomic_load(&dd.master),
   atomic_load(&dd.deck[0].speed),atomic_load(&dd.deck[1].speed),
   atomic_load(&dd.deck[0].mute_mask),atomic_load(&dd.deck[1].mute_mask),
   atomic_load(&dd.deck[0].voice[0].gain),atomic_load(&dd.deck[0].voice[1].gain),
@@ -259,6 +272,7 @@ static void dual_host_load(const char *command)
   cdc_tx((const uint8_t *)error,sizeof(error)-1);return;
  }
  /* Storage-thread ownership: only this deck is stopped and cued. */
+ atomic_store(&dd_browse_slot[deck],(int)slot-1);
  atomic_store(&dd_request[deck],-1);
  dual_load(deck,slot-1);
  char line[80];int n=snprintf(line,sizeof(line),"{\"loaded\":1,\"deck\":%u,\"slot\":%u}\n",deck,slot);
@@ -371,7 +385,7 @@ static bool dual_commit(void)
  bool ok=!g_cache_on||emmc_cache_flush();
  ok=dual_read_index()&&ok;
  for(int k=0;k<2;k++) {
-  int slot=atomic_load(&dd_slot[k]);atomic_store(&dd_request[k],slot<0?k:slot);
+  int slot=atomic_load(&dd_slot[k]);dual_request_song((unsigned)k,slot<0?k:slot);
  }
  return ok;
 }
@@ -504,7 +518,7 @@ static void dual_storage_thread(void *a,void *b,void *c)
  dual_read_index();g_meta_loaded=1;
  int first=-1,second=-1;
  for(unsigned s=0;s<NUM_SLOTS;s++) if(dual_song_present(s)) {if(first<0) first=s;else {second=s;break;}}
- atomic_store(&dd_request[0],first<0?0:first);atomic_store(&dd_request[1],second<0?1:second);
+ dual_request_song(0,first<0?0:first);dual_request_song(1,second<0?1:second);
  while(1) {
   if(atomic_load(&dd_flush_req)&&!dual_record_busy()) {
    if(g_cache_on) emmc_cache_flush();
@@ -549,11 +563,12 @@ static void dual_recovery_check(void)
 static void dual_choose_song(int direction)
 {
  if(dual_record_busy()) return;
- int slot=atomic_load(&dd_request[dd_selected]);
+ int slot=atomic_load(&dd_browse_slot[dd_selected]);
  if(slot<0) slot=atomic_load(&dd_slot[dd_selected]);
- for(int n=1;n<=16;n++) {
-  unsigned next=(unsigned)(slot+direction*n+32)%16;
-  if(dual_song_present(next)) {atomic_store(&dd_request[dd_selected],(int)next);break;}
+ if(slot<0) slot=direction>0?-1:0;
+ for(int n=1;n<=(int)NUM_SLOTS;n++) {
+  unsigned next=(unsigned)(slot+direction*n+(int)(2u*NUM_SLOTS))%NUM_SLOTS;
+  if(dual_song_present(next)) {dual_request_song(dd_selected,(int)next);break;}
  }
 }
 static int dual_track_key(int raw)
@@ -570,7 +585,7 @@ static int dual_track_key(int raw)
 static void dual_controls(void)
 {
  int tc=TRK_NONE,tcan=TRK_NONE,tcount=0,vc=VOL_NONE,vcan=VOL_NONE,vcount=0;
- bool spent=false,fn_used=false,fn_before=false,solo=false,track_blocked=false;uint32_t solo_saved=0;
+ bool spent=false,fn_used=false,fn_before=false,solo=false,track_blocked=false,modified_wheel=false;uint32_t solo_saved=0;
  int pressed_deck=0,pressed_track=TRK_NONE;int64_t track_time=0,fn_time=0,repeat=0,hp_time=0;
  int smooth[4]={-1,-1,-1,-1};unsigned fi=0;uint32_t led_tick=0;
  int64_t record_chord=0;bool record_latched=false,record_blocked=false;
@@ -602,7 +617,7 @@ static void dual_controls(void)
     atomic_store(&dd_record_toggle,true);record_latched=true;
    }
   } else record_chord=0;
-  if(vc==VOL_NONE) {record_latched=false;record_blocked=false;}
+  if(vc==VOL_NONE) {record_latched=false;record_blocked=false;modified_wheel=false;}
   int previous_effect=effect_stem;
   effect_stem=(fn&&tc>=TRK_1&&tc<=TRK_4)?tc:-1;
   if(effect_stem!=previous_effect) {
@@ -625,7 +640,7 @@ static void dual_controls(void)
   }
   if(pressed_track>=0&&!spent&&tc==pressed_track&&now-track_time>=450) {
    struct dd_deck *d=&dd.deck[pressed_deck];spent=true;
-   if(pressed_track==TRK_PLAY) atomic_store(&dd_request[pressed_deck],atomic_load(&dd_slot[pressed_deck]));
+   if(pressed_track==TRK_PLAY) dual_request_song((unsigned)pressed_deck,atomic_load(&dd_slot[pressed_deck]));
    else {solo_saved=atomic_load(&d->mute_mask);atomic_store(&d->mute_mask,15u^(1u<<pressed_track));solo=true;}
   }
   if(pressed_track>=0&&tc==TRK_NONE) {
@@ -637,7 +652,10 @@ static void dual_controls(void)
    }
    pressed_track=TRK_NONE;spent=false;
   }
-  if(!record_blocked&&vc!=VOL_NONE&&(vc!=oldv||now>=repeat)) {
+  /* A wheel gesture begun with FUNCTION stays a modified gesture until the
+   * wheel is released. Releasing FUNCTION first must not change deck pitch. */
+  bool wheel=vc==VOL_TEMPO_UP||vc==VOL_TEMPO_DOWN;
+  if(!record_blocked&&!(wheel&&modified_wheel&&!fn)&&vc!=VOL_NONE&&(vc!=oldv||now>=repeat)) {
    repeat=now+(vc!=oldv?500:110);
    int dir=(vc==VOL_UP||vc==VOL_TEMPO_UP)?1:-1;
    if(vc==VOL_UP||vc==VOL_DOWN) {
@@ -645,6 +663,7 @@ static void dual_controls(void)
     atomic_store(&dd.master,CLAMP(volume,0,256));fn_used|=fn;
    } else if(vc==VOL_TEMPO_UP||vc==VOL_TEMPO_DOWN) {
     if(fn) {
+     modified_wheel=true;
      if(effect_stem>=0) {
       if(vc!=oldv) {
        unsigned voice=dd_selected*4+(unsigned)effect_stem;

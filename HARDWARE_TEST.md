@@ -1,5 +1,19 @@
 # Physical test — 2026-09-30
 
+## Current result — October 3, 2026
+
+0.4.2 is the next unflashed candidate. It fixes the persistent browse cursor and modifier-release ordering, normalizes echo/reverb dry/wet gain to avoid pre-fader saturation, widens reverb allpass state, improves anti-alias filtering and smooths filter coefficient changes. Host signal regressions and six C sanitizer suites plus 29 Python tests pass. Its ARM build uses 106,868 application bytes and 248,004 of 262,144 RAM bytes. New cumulative audio-time/block counters support average callback timing over a measured window. These are build/host results, not physical performance results; echo/reverb processing still requires a passing MCU deadline comparison.
+
+0.4.1 flashed successfully at 03:48 EDT: 106,576 application bytes, SHA256 `b8b7ab3c31785751d1fa2b6a2abb7ed588e3cb8ab51b533abafa7ea967574c96`. Three fresh bootloader checks and both CRC-valid finalizations passed. Only the application was written; no song-library commands were sent. Runtime verification at 03:52 EDT confirmed 0.4.1 and the same four occupied slots, four stems each, with unchanged exact lengths. This is index preservation, not a fresh audio-sector readback.
+
+A steady 20.032-second dry window passed with slots 1/2, both playing at 1x, all eight gains 256, no mutes, master64, effects bypassed and USB capture off. No new deck underruns, storage/CRC/I2S/capture errors or clip counters. Cumulative underruns were6/8 at the start and stayed unchanged; startup is not claimed dropout-free. Session maximum audio callback was3,878 microseconds.
+
+A second stable 20.087-second window passed with two A filters at amounts255 and208, the same full eight-stem workload and zero new faults/dropouts. The cumulative callback maximum was5,099 microseconds, below the5,333-microsecond deadline but close to it. This does not test eight simultaneous effects.
+
+The user then reported stuttering after intending to select Echo. The next status actually showed full Reverb on A1 and full Filter on A2, cumulative underruns1,587/1,589, FX clips8 and callback maximum5,390 microseconds. A2 gain had changed tozero, so the intended eight-stem echo measurement was rejected as inconclusive. A subsequent probe found the transports no longer both playing. These counters and audible report warrant withholding promotion; they do not establish a stable echo-only failure rate.
+
+Evidence: `flash-20261003-034856.jsonl`, `bonsai-0.4.1-postflash.json`, `bonsai-0.4.1-eight-dry.json`, `bonsai-0.4.1-eight-filter.json`, `bonsai-0.4.1-eight-echo.json`. Raw files are local under `hardware-tests/`. All serial handles were closed. Echo/reverb corrections, USB under load, browsing, offline recording/save/export and browser flashing remain hardware gates.
+
 Initial 0.1 binary SHA256: `e5144826ee19f260b62296695ef9a055d45788f71847f14462783c2c71dc80fc`.
 Previous 0.2 binary SHA256: `9b9c182c43f7cc2912b9fc7bd2d50f74de0211f371047f0f40f2fd1243178304`.
 

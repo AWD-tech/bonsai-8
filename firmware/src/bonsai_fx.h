@@ -4,7 +4,7 @@
 #include "dual_engine.h"
 
 #define BONSAI_FX_VOICES 8u
-#define BONSAI_FX_HISTORY 1024u
+#define BONSAI_FX_HISTORY 1112u
 #define BONSAI_FX_DECIMATION 12u
 enum bonsai_fx_type {
  BONSAI_FX_NONE,
@@ -14,9 +14,9 @@ enum bonsai_fx_type {
 };
 struct bonsai_fx_voice {
  int16_t history[BONSAI_FX_HISTORY];
- int32_t low_l, low_r, input_sum;
+ int32_t low_l, low_r, input_sum, weighted_sum, previous_sum;
  int16_t wet_previous, wet_next;
- uint16_t position[6], clear_index, mix, requested_amount, alpha;
+ uint16_t position[6], clear_index, mix, requested_amount, alpha, target_alpha;
  uint8_t phase, type, requested_type;
  bool filter_seeded;
  uint32_t clipped;
@@ -42,16 +42,20 @@ void bonsai_fx_begin_block(struct bonsai_fx *fx);
 /* Audio owner, once per 48 kHz frame per voice, before stem gain/mute. Call
  * even for currently muted voices if their tails should keep progressing.
  * Bypass preserves stereo exactly after a <=256-frame (5.33 ms) fade-out.
- * Effect changes fade out, clear history incrementally over 1024 frames
- * (21.33 ms), then fade in. No full delay-line clear occurs in this call.
+ * Effect changes fade out, clear history incrementally over 1112 frames
+ * (23.17 ms), then fade in. No full delay-line clear occurs in this call.
  *
  * FILTER: independent stereo one-pole low-pass, amount maps approximately
  * 18 kHz to 150 Hz. ECHO/REVERB: stereo dry plus mono wet, 4 kHz wet sampling
- * (2 kHz Nyquist), averaged decimation and linear return interpolation.
+ * (2 kHz Nyquist), triangular anti-alias decimation and linear return
+ * interpolation. Full amount is a 50/50 dry/wet mix, with unity total gain
+ * and no per-stem hard clipping before the fader. Filter coefficient changes
+ * ramp over at most 227 frames (4.73 ms) to avoid abrupt sweeps.
  * ECHO: fixed 250 ms, feedback 0.5 and input gain 0.5; ~2.5 s to -60 dB.
  * REVERB: compact/dark four-comb network (37.25..73.25 ms), two allpasses;
  * feedback 0.75, longest nominal -60 dB decay ~1.76 s. Not full-band reverb.
- * Amount controls wet level for echo/reverb; dry is never removed.
+ * Amount controls wet level for echo/reverb; at zero dry is unchanged,
+ * at full amount dry/wet are each half level. Stereo dry is retained.
  */
 struct dd_frame bonsai_fx_process(struct bonsai_fx_voice *v,
                                   struct dd_frame input);

@@ -8,7 +8,7 @@ Private development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). 
 
 ## Release status
 
-The local test candidate is **`bonsai-8-0.4.1`**, with batched per-stem effects and a fast path that also handles a paused deck. Exact sample/state comparisons, sanitizer tests and the ARM build pass; it has not yet been flashed or measured on hardware. The site installer still offers 0.4.0 pending the next hardware check.
+**`bonsai-8-0.4.1` is installed on the owner's device.** Stable twenty-second dry and two-filter tests passed with all eight stems raised and no new dropouts. Subsequent reverb use produced clipping and many cumulative underruns; the intended echo comparison was inconclusive because controls changed. This is not a verified full-load release. The site installer remains the labeled 0.4.0 candidate while effects fixes and the remaining hardware checks proceed. See `RELEASE_POLICY.md` for the required repository/PR/site release process.
 
 The player currently runs **`bonsai-8-0.4.0`**, flashed and identified on October 2, with all four existing songs listed. A stable all-eight-stem test reproduced 109/104 new deck underruns in ten seconds with two filters and the site disconnected. The user also reports stuttering with echo and reverb. Full-load playback, effects, USB monitoring and recording remain unverified. Changing source files or the website does not update a connected player.
 

@@ -78,7 +78,7 @@ static void test_echo_impulse_timing_and_decay(void)
   if (i > 144000 && abs(out.l) > tail_peak) tail_peak = abs(out.l);
  }
  assert(first >= 12000 && first <= 12024);
- assert(first_energy > 50000 && first_energy < 80000);
+ assert(first_energy > 25000 && first_energy < 42000); /* 50% wet at full amount */
  assert(second_energy > first_energy * 45 / 100);
  assert(second_energy < first_energy * 55 / 100);
  assert(tail_peak <= 4);
@@ -115,7 +115,7 @@ static void test_incremental_reset_and_switch(void)
  (void)bonsai_fx_process(&fx.voice[0], silence);
  assert(fx.voice[0].history[0] == 0);
  assert(fx.voice[0].history[1] == 1234); /* no full callback-time clear */
- assert(fx.voice[0].history[1023] == 1234);
+ assert(fx.voice[0].history[BONSAI_FX_HISTORY - 1u] == 1234);
  warm(0);
  for (unsigned i = 0; i < 24000; ++i)
   (void)bonsai_fx_process(&fx.voice[0], (struct dd_frame){16000,16000});
@@ -208,8 +208,101 @@ static void test_buffer_matches_sample_processing(void)
   assert(!memcmp(&fx.voice[0],&reference.voice[0],sizeof(fx.voice[0])));
  }
 }
+static int64_t echo_return_energy(unsigned phase_step)
+{
+ static const int16_t sine[48] = {
+  0,1566,3106,4592,6000,7305,8485,9520,10392,11087,11591,11897,
+  12000,11897,11591,11087,10392,9520,8485,7305,6000,4592,3106,1566,
+  0,-1566,-3106,-4592,-6000,-7305,-8485,-9520,-10392,-11087,-11591,-11897,
+  -12000,-11897,-11591,-11087,-10392,-9520,-8485,-7305,-6000,-4592,-3106,-1566
+ };
+ bonsai_fx_init(&fx); configure(0, BONSAI_FX_ECHO, 256); warm(0);
+ int64_t energy = 0;
+ for (unsigned i = 0; i < 20000; ++i) {
+  int16_t x = i < 4800 ? sine[(i * phase_step) % 48] : 0;
+  struct dd_frame out = bonsai_fx_process(&fx.voice[0], (struct dd_frame){x,x});
+  /* Dry is silent here; compare 1 kHz wet against the spurious 1 kHz alias
+   * created when a 3 kHz source enters the 4 kHz delay network. */
+  if (i >= 12100 && i < 16700) energy += abs(out.l);
+ }
+ return energy;
+}
+static void test_echo_alias_rejection(void)
+{
+ int64_t wanted = echo_return_energy(1), aliased = echo_return_energy(3);
+ assert(wanted > 1000000);
+ fprintf(stderr, "wet alias ratio: %.3f\n", (double)aliased / wanted);
+ assert(aliased * 100 < wanted * 16);
+}
+static void test_hot_stems_do_not_clip_inside_effect(void)
+{
+ /* A limiter at the final output cannot repair saturation performed before
+  * a stem's fader. Hot recordings must remain clean at every FX amount. */
+ for (unsigned type = BONSAI_FX_ECHO; type <= BONSAI_FX_REVERB; ++type) {
+  bonsai_fx_init(&fx); configure(0, (enum bonsai_fx_type)type, 256); warm(0);
+  struct dd_frame out = silence;
+  for (unsigned i = 0; i < 96000; ++i)
+   out = bonsai_fx_process(&fx.voice[0], (struct dd_frame){24000,24000});
+  assert(out.l >= 23500 && out.l <= 24000 && out.r == out.l);
+  assert(fx.voice[0].clipped == 0);
+ }
+}
+static void test_decimator_matches_direct_triangular_filter(void)
+{
+ bonsai_fx_init(&fx); configure(0, BONSAI_FX_ECHO, 256); warm(0);
+ while (fx.voice[0].phase) (void)bonsai_fx_process(&fx.voice[0], silence);
+ int16_t window[BONSAI_FX_DECIMATION] = {0};
+ int32_t window_sum = 0, filtered_sum = 0;
+ unsigned cursor = 0;
+ uint32_t random = 0xa62de4u;
+ for (unsigned i = 0; i < 24000; ++i) {
+  random ^= random << 13; random ^= random >> 17; random ^= random << 5;
+  struct dd_frame in = {(int16_t)random,(int16_t)(random >> 16)};
+  int16_t mono = (int16_t)(((int32_t)in.l + in.r) / 2);
+  window_sum += (int32_t)mono - window[cursor];
+  window[cursor] = mono;
+  cursor = (cursor + 1u) % BONSAI_FX_DECIMATION;
+  filtered_sum += window_sum;
+  unsigned old_position = fx.voice[0].position[0];
+  int16_t old_delay = fx.voice[0].history[old_position];
+  (void)bonsai_fx_process(&fx.voice[0], in);
+  if (!fx.voice[0].phase) {
+   int16_t filtered = (int16_t)(filtered_sum /
+    (int)(BONSAI_FX_DECIMATION * BONSAI_FX_DECIMATION));
+   assert(fx.voice[0].history[old_position] == ((int32_t)filtered + old_delay) / 2);
+   filtered_sum = 0;
+  }
+ }
+}
+static void test_delay_effects_retain_stereo_dry(void)
+{
+ for (unsigned type = BONSAI_FX_ECHO; type <= BONSAI_FX_REVERB; ++type) {
+  bonsai_fx_init(&fx); configure(0, (enum bonsai_fx_type)type, 256); warm(0);
+  for (unsigned i = 0; i < 24000; ++i) {
+   struct dd_frame out = bonsai_fx_process(&fx.voice[0], (struct dd_frame){12000,-12000});
+   assert(out.l == 6000 && out.r == -6000);
+  }
+ }
+}
+static void test_filter_sweep_does_not_jump(void)
+{
+ bonsai_fx_init(&fx); configure(0, BONSAI_FX_FILTER, 256); warm(0);
+ for (unsigned i = 0; i < 4800; ++i)
+  (void)bonsai_fx_process(&fx.voice[0], (struct dd_frame){-24000,-24000});
+ struct dd_frame before = bonsai_fx_process(&fx.voice[0], (struct dd_frame){24000,24000});
+ configure(0, BONSAI_FX_FILTER, 1);
+ struct dd_frame after = bonsai_fx_process(&fx.voice[0], (struct dd_frame){24000,24000});
+ /* The source has stayed constant while the user opens the filter. A large
+  * coefficient jump used to inject a near full-scale discontinuity. */
+ assert(abs((int)after.l - before.l) < 2000);
+}
 int main(void)
 {
+ test_echo_alias_rejection();
+ test_hot_stems_do_not_clip_inside_effect();
+ test_filter_sweep_does_not_jump();
+ test_delay_effects_retain_stereo_dry();
+ test_decimator_matches_direct_triangular_filter();
  test_bypass_and_bounds(); test_filter_response_and_stereo();
  test_echo_impulse_timing_and_decay(); test_reverb_tail_and_isolation();
  test_incremental_reset_and_switch(); test_full_scale_stability();

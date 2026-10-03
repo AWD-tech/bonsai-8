@@ -12,6 +12,13 @@ from elftools.elf.elffile import ELFFile
 ROOT=Path(__file__).resolve().parents[1]
 DIST=ROOT/'dist'
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+def source_is_dirty(root, sources):
+ """Check every bundled source against the pinned commit, not unrelated UI WIP."""
+ for path in sources:
+  relative=path.relative_to(root).as_posix()
+  result=subprocess.run(['git','show','HEAD:'+relative],cwd=root,capture_output=True)
+  if result.returncode or result.stdout!=path.read_bytes(): return True
+ return False
 def main():
  DIST.mkdir(exist_ok=True)
  binary=ROOT/'build/zephyr/zephyr.bin';elf=ROOT/'build/zephyr/zephyr.elf'
@@ -34,14 +41,15 @@ def main():
   ram=[s for s in e.iter_sections() if s['sh_flags']&2 and 0x20000000<=s['sh_addr']<0x20040000]
   ram_used=max(s['sh_addr']+s['sh_size'] for s in ram)-0x20000000
   assert ram_used<=0x40000
- sources=[ROOT/'README.md',ROOT/'README-upstream.md',ROOT/'LICENSE',ROOT/'HARDWARE_TEST.md',ROOT/'USER_MANUAL.md',ROOT/'CONTRIBUTING.md']
+ sources=[ROOT/'README.md',ROOT/'README-upstream.md',ROOT/'LICENSE',ROOT/'HARDWARE_TEST.md',ROOT/'USER_MANUAL.md',ROOT/'CONTRIBUTING.md',ROOT/'RELEASE_POLICY.md']
  for directory in ['firmware','boards','tools','tests']:
   sources += [p for p in (ROOT/directory).rglob('*') if p.is_file() and '__pycache__' not in p.parts]
  manifest={
   'name':'Bonsai 8','version':version,'status':'Hardware-test candidate. See HARDWARE_TEST.md for version-specific measured results; packaging does not establish flashing or hardware verification.',
   'upstream_commit':'44ba1ecbec6c844dba7f47eacee94c53af8ab10d',
   'source_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
-  'source_dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
+  'source_dirty':source_is_dirty(ROOT,sources),
+  'workspace_dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip()),
   'zephyr_commit':'75f67d766726351b30199f9a2bf55803d717a3be','sdk':'0.17.4',
   'application_address':'0x20000','initial_stack':hex(sp),'reset_vector':hex(reset),
   'binary_bytes':len(data),'ram_used_bytes':ram_used,'ram_available_bytes':262144,

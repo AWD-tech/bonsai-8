@@ -1,0 +1,485 @@
+{
+  "note": "80 focused assignments use reusable workers because the environment limits concurrent and total agent threads. Host passes do not imply hardware completion.",
+  "assignments": [
+    {
+      "id": 1,
+      "owner": "controls",
+      "task": "Physical library cursor and modifier-release regressions",
+      "state": "host-pass; hardware pending"
+    },
+    {
+      "id": 2,
+      "owner": "audio",
+      "task": "SFX quality and MCU deadline correction",
+      "state": "in progress"
+    },
+    {
+      "id": 3,
+      "owner": "architecture",
+      "task": "Feasibility, safe metadata and measured geometry design",
+      "state": "design complete"
+    },
+    {
+      "id": 4,
+      "owner": "browser",
+      "task": "Independent A/B loading",
+      "state": "in progress"
+    },
+    {
+      "id": 5,
+      "owner": "browser",
+      "task": "Independent transports",
+      "state": "in progress"
+    },
+    {
+      "id": 6,
+      "owner": "browser",
+      "task": "Seek and cue",
+      "state": "in progress"
+    },
+    {
+      "id": 7,
+      "owner": "browser",
+      "task": "Eight stem gains",
+      "state": "in progress"
+    },
+    {
+      "id": 8,
+      "owner": "browser",
+      "task": "Mute and solo",
+      "state": "in progress"
+    },
+    {
+      "id": 9,
+      "owner": "browser",
+      "task": "Deck volume",
+      "state": "in progress"
+    },
+    {
+      "id": 10,
+      "owner": "browser",
+      "task": "Combined headroom",
+      "state": "in progress"
+    },
+    {
+      "id": 11,
+      "owner": "browser",
+      "task": "Transport timing",
+      "state": "in progress"
+    },
+    {
+      "id": 12,
+      "owner": "browser",
+      "task": "Load B while A plays",
+      "state": "in progress"
+    },
+    {
+      "id": 13,
+      "owner": "browser",
+      "task": "Session library selection",
+      "state": "in progress"
+    },
+    {
+      "id": 14,
+      "owner": "browser",
+      "task": "Two-song demo",
+      "state": "in progress"
+    },
+    {
+      "id": 15,
+      "owner": "browser",
+      "task": "Unload and disconnect behavior",
+      "state": "in progress"
+    },
+    {
+      "id": 16,
+      "owner": "browser",
+      "task": "Keyboard and accessibility",
+      "state": "in progress"
+    },
+    {
+      "id": 17,
+      "owner": "browser",
+      "task": "Mobile mixer layout",
+      "state": "in progress"
+    },
+    {
+      "id": 18,
+      "owner": "browser",
+      "task": "Audio/state regression tests",
+      "state": "in progress"
+    },
+    {
+      "id": 19,
+      "owner": "browser",
+      "task": "Connected-mode isolation",
+      "state": "in progress"
+    },
+    {
+      "id": 20,
+      "owner": "library-and-flash",
+      "task": "Content-bound persistent title registry",
+      "state": "in progress"
+    },
+    {
+      "id": 21,
+      "owner": "library-and-flash",
+      "task": "Stale slot-title rejection",
+      "state": "in progress"
+    },
+    {
+      "id": 22,
+      "owner": "library-and-flash",
+      "task": "Unknown title fallback",
+      "state": "in progress"
+    },
+    {
+      "id": 23,
+      "owner": "library-and-flash",
+      "task": "Reconnect metadata rules",
+      "state": "in progress"
+    },
+    {
+      "id": 24,
+      "owner": "library-and-flash",
+      "task": "Confirmed deletion clears title",
+      "state": "in progress"
+    },
+    {
+      "id": 25,
+      "owner": "library-and-flash",
+      "task": "Confirmed upload remembers filename",
+      "state": "in progress"
+    },
+    {
+      "id": 26,
+      "owner": "library-and-flash",
+      "task": "Recording/export naming",
+      "state": "in progress"
+    },
+    {
+      "id": 27,
+      "owner": "library-and-flash",
+      "task": "Library title display",
+      "state": "in progress"
+    },
+    {
+      "id": 28,
+      "owner": "library-and-flash",
+      "task": "Missing telemetry fail-closed behavior",
+      "state": "in progress"
+    },
+    {
+      "id": 29,
+      "owner": "library-and-flash",
+      "task": "Application-only flash bounds",
+      "state": "in progress"
+    },
+    {
+      "id": 30,
+      "owner": "library-and-flash",
+      "task": "Bootloader CRC and binary hash",
+      "state": "in progress"
+    },
+    {
+      "id": 31,
+      "owner": "library-and-flash",
+      "task": "No flasher formatting path",
+      "state": "in progress"
+    },
+    {
+      "id": 32,
+      "owner": "library-and-flash",
+      "task": "Version and artifact consistency",
+      "state": "in progress"
+    },
+    {
+      "id": 33,
+      "owner": "library-and-flash",
+      "task": "Song preservation and stock compatibility text",
+      "state": "in progress"
+    },
+    {
+      "id": 34,
+      "owner": "library-and-flash",
+      "task": "Flash failure/reconnect tests",
+      "state": "in progress"
+    },
+    {
+      "id": 35,
+      "owner": "library-and-flash",
+      "task": "Title lifecycle regressions",
+      "state": "in progress"
+    },
+    {
+      "id": 36,
+      "owner": "audio",
+      "task": "Hot-input saturation",
+      "state": "in progress"
+    },
+    {
+      "id": 37,
+      "owner": "audio",
+      "task": "Reverb internal headroom",
+      "state": "in progress"
+    },
+    {
+      "id": 38,
+      "owner": "audio",
+      "task": "Wet decimation alias rejection",
+      "state": "in progress"
+    },
+    {
+      "id": 39,
+      "owner": "audio",
+      "task": "Filter coefficient ramp",
+      "state": "in progress"
+    },
+    {
+      "id": 40,
+      "owner": "audio",
+      "task": "Exact bypass",
+      "state": "in progress"
+    },
+    {
+      "id": 41,
+      "owner": "audio",
+      "task": "Effect persistence",
+      "state": "in progress"
+    },
+    {
+      "id": 42,
+      "owner": "audio",
+      "task": "Eight independent histories",
+      "state": "in progress"
+    },
+    {
+      "id": 43,
+      "owner": "audio",
+      "task": "Stereo dry image",
+      "state": "in progress"
+    },
+    {
+      "id": 44,
+      "owner": "audio",
+      "task": "Bounded wet energy",
+      "state": "in progress"
+    },
+    {
+      "id": 45,
+      "owner": "audio",
+      "task": "Steady 1x cost",
+      "state": "in progress"
+    },
+    {
+      "id": 46,
+      "owner": "audio",
+      "task": "1.25x cost",
+      "state": "in progress"
+    },
+    {
+      "id": 47,
+      "owner": "audio",
+      "task": "Transition cost",
+      "state": "in progress"
+    },
+    {
+      "id": 48,
+      "owner": "audio",
+      "task": "Scalar/buffer differential",
+      "state": "in progress"
+    },
+    {
+      "id": 49,
+      "owner": "audio",
+      "task": "Sanitizer stress",
+      "state": "in progress"
+    },
+    {
+      "id": 50,
+      "owner": "audio",
+      "task": "RAM and stack accounting",
+      "state": "in progress"
+    },
+    {
+      "id": 51,
+      "owner": "audio",
+      "task": "MCU budget and worst-workload measurements",
+      "state": "in progress"
+    },
+    {
+      "id": 52,
+      "owner": "release-and-hardware",
+      "task": "Evidence-gated release tooling",
+      "state": "host-pass"
+    },
+    {
+      "id": 53,
+      "owner": "release-and-hardware",
+      "task": "Reject falsified PASS/counters",
+      "state": "host-pass"
+    },
+    {
+      "id": 54,
+      "owner": "release-and-hardware",
+      "task": "Reject intermediate control changes",
+      "state": "host-pass"
+    },
+    {
+      "id": 55,
+      "owner": "release-and-hardware",
+      "task": "Version and minimum-time gate",
+      "state": "host-pass"
+    },
+    {
+      "id": 56,
+      "owner": "release-and-hardware",
+      "task": "Actual requested-effect gate",
+      "state": "host-pass"
+    },
+    {
+      "id": 57,
+      "owner": "release-and-hardware",
+      "task": "Actual USB capture/mirroring gate",
+      "state": "host-pass"
+    },
+    {
+      "id": 58,
+      "owner": "release-and-hardware",
+      "task": "Library preservation gate",
+      "state": "host-pass"
+    },
+    {
+      "id": 59,
+      "owner": "release-and-hardware",
+      "task": "Flashed hash/vector bounds gate",
+      "state": "implementation; tests pending"
+    },
+    {
+      "id": 60,
+      "owner": "release-and-hardware",
+      "task": "Immutable versioned staging",
+      "state": "implementation; tests pending"
+    },
+    {
+      "id": 61,
+      "owner": "release-and-hardware",
+      "task": "Standing repository/PR/site policy",
+      "state": "documented"
+    },
+    {
+      "id": 62,
+      "owner": "release-and-hardware",
+      "task": "0.4.1 application flash and version/index check",
+      "state": "device-pass"
+    },
+    {
+      "id": 63,
+      "owner": "release-and-hardware",
+      "task": "All-eight dry playback",
+      "state": "20-second device-pass"
+    },
+    {
+      "id": 64,
+      "owner": "release-and-hardware",
+      "task": "Full filter playback",
+      "state": "two filters, 20-second device-pass"
+    },
+    {
+      "id": 65,
+      "owner": "release-and-hardware",
+      "task": "Echo/reverb audible and deadline test",
+      "state": "failure reported; controlled comparison pending"
+    },
+    {
+      "id": 66,
+      "owner": "release-and-hardware",
+      "task": "USB audio and mirroring maximum load",
+      "state": "pending"
+    },
+    {
+      "id": 67,
+      "owner": "release-and-hardware",
+      "task": "Offline recording/save/reboot/export",
+      "state": "pending"
+    },
+    {
+      "id": 68,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Beat/BPM analysis with confidence",
+      "state": "planned"
+    },
+    {
+      "id": 69,
+      "owner": "sync-pitch-and-geometry",
+      "task": "User-correctable beat grid",
+      "state": "planned"
+    },
+    {
+      "id": 70,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Key estimation with confidence",
+      "state": "planned"
+    },
+    {
+      "id": 71,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Master-deck selection",
+      "state": "planned"
+    },
+    {
+      "id": 72,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Real independent pitch preserving duration",
+      "state": "planned"
+    },
+    {
+      "id": 73,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Stereo and transient pitch verification",
+      "state": "planned"
+    },
+    {
+      "id": 74,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Tempo stretch preserving pitch",
+      "state": "planned"
+    },
+    {
+      "id": 75,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Sample-clock beat alignment",
+      "state": "planned"
+    },
+    {
+      "id": 76,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Prepared matched-stem export/upload",
+      "state": "planned"
+    },
+    {
+      "id": 77,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Physical live-pitch feasibility benchmark",
+      "state": "planned"
+    },
+    {
+      "id": 78,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Device metadata identity and title sidecar",
+      "state": "planned"
+    },
+    {
+      "id": 79,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Measured physical dimensions",
+      "state": "planned"
+    },
+    {
+      "id": 80,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Model/guide measured-geometry validation",
+      "state": "planned"
+    }
+  ]
+}

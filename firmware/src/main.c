@@ -1651,6 +1651,9 @@ static volatile uint32_t g_stored_glitch_cnt;    /* diag: wfail advance-anyway c
                                                   * what previous crackle hunts were missing. */
 static volatile uint32_t g_i2s_wfail_cnt;        /* diag: I2S write failures (audio-path exoneration) */
 static volatile uint32_t g_audio_us_max;         /* diag: worst looper_audio_block exec time, us (DWT, session) */
+#ifdef SP1_DUAL_DECK
+static volatile uint32_t g_dual_audio_us_total, g_dual_audio_blocks;
+#endif
 static volatile int32_t  g_play_lowat = 0x7FFFFFFF; /* diag: window MIN play-ring margin, samples */
 static volatile uint32_t g_rec_hiwat;            /* diag: window MAX rec-ring fill, samples */
 static volatile uint8_t  g_extcsd_dump[9];       /* diag: EXT_CSD[167,166,231,502,503,198,246,192,175] */
@@ -10756,6 +10759,8 @@ static void audio_thread(void *a, void *b, void *c)
         dual_audio_block(blk);
         uint32_t elapsed_us = (DWT->CYCCNT - start_cycles) / 64u;
         if (elapsed_us > g_audio_us_max) g_audio_us_max = elapsed_us;
+        g_dual_audio_us_total += elapsed_us;
+        ++g_dual_audio_blocks;
 #else
 		uint32_t _c0 = DWT->CYCCNT;
 		looper_audio_block(blk);

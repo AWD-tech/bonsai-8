@@ -12,11 +12,14 @@ int main(int argc, char **argv)
  unsigned blocks=argc>1?(unsigned)strtoul(argv[1],NULL,10):100000;
  unsigned speed=argc>2?(unsigned)strtoul(argv[2],NULL,10):65536;
  unsigned effect=argc>3?(unsigned)strtoul(argv[3],NULL,10):0;
+ unsigned amount=argc>4?(unsigned)strtoul(argv[4],NULL,10):128;
+ unsigned mask=argc>5?(unsigned)strtoul(argv[5],NULL,0):255;
+ if(amount>256) {fputs("amount must be 0..256\n",stderr);return 2;}
  dd_init(&engine);atomic_store(&engine.master,128);
  if(effect) {
   if(effect>BONSAI_FX_REVERB) {fputs("effect must be 0..3\n",stderr);return 2;}
   bonsai_fx_init(&effects);engine.fx=&effects;
-  for(unsigned i=0;i<8;i++) bonsai_fx_set(&effects,i,(enum bonsai_fx_type)effect,128);
+  for(unsigned i=0;i<8;i++) if(mask&(1u<<i)) bonsai_fx_set(&effects,i,(enum bonsai_fx_type)effect,amount);
  }
  for(unsigned k=0;k<2;k++) {
   struct dd_deck *d=&engine.deck[k];dd_reset_deck(d,15);
@@ -33,5 +36,5 @@ int main(int argc, char **argv)
    atomic_store(&engine.deck[k].voice[s].written,atomic_load(&engine.deck[k].read)+DD_RING);
   dd_render(&engine,output,256);checksum+=(uint16_t)output[511];
  }
- printf("host-only: %u blocks, speed %u, effect %u, %.6f CPU seconds, checksum %u\n",blocks,speed,effect,(double)(clock()-start)/CLOCKS_PER_SEC,checksum);
+ printf("host-only: %u blocks, speed %u, effect %u, amount %u, mask %u, %.6f CPU seconds, checksum %u\n",blocks,speed,effect,amount,mask,(double)(clock()-start)/CLOCKS_PER_SEC,checksum);
 }
