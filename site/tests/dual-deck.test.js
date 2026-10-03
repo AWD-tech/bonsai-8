@@ -31,6 +31,21 @@ test('A port owned by another process gives an upload-specific error without sen
 
 test('Bonsai branding, occupied library rows and deck loading validate strict reply shapes',async()=>{const {libraryPacket,loadPacket}=await import('../public/protocol.js');assert.ok(dualDeckStatus(JSON.stringify({...state,firmware:'bonsai-8-0.4.0'})));const valid={library:1,sample_rate:48000,slots:[{slot:4,present:[1,0,0,0],frames:96000,title:null}]};assert.deepEqual(libraryPacket(JSON.stringify(valid)),valid);assert.equal(libraryPacket(JSON.stringify({...valid,slots:[...valid.slots,...valid.slots]})),null);assert.equal(libraryPacket(JSON.stringify({...valid,sample_rate:24000})),null);assert.deepEqual(loadPacket('{"loaded":1,"deck":1,"slot":16}'),{loaded:1,deck:1,slot:16});assert.equal(loadPacket('{"loaded":1,"deck":2,"slot":16}'),null);});
 
+test('song loading accepts only the exact requested deck and slot, including every library position',async()=>{
+ const connection=new SP1Connection(()=>{},()=>{}),calls=[];let reply;
+ connection.withExclusive=async work=>work();
+ connection.jsonCommand=async(kind,text,timeout)=>{calls.push({kind,text,timeout});return reply;};
+ for(const deck of [0,1])for(let slot=1;slot<=16;slot++){
+  reply={loaded:1,deck,slot};assert.deepEqual(await connection.loadSong(deck,slot),reply);
+  assert.deepEqual(calls.at(-1),{kind:'load',text:`DDLOAD ${deck} ${slot}\n`,timeout:5000});
+ }
+ reply={loaded:1,deck:0,slot:4};await assert.rejects(connection.loadSong(1,4),/different deck or song/);
+ reply={loaded:1,deck:1,slot:3};await assert.rejects(connection.loadSong(1,4),/different deck or song/);
+ reply={loaded:0,error:'Song is empty'};await assert.rejects(connection.loadSong(1,4),/Song is empty/);
+ const count=calls.length;await assert.rejects(connection.loadSong(1,17),/Invalid deck or song/);
+ assert.equal(calls.length,count,'invalid selections must never reach the connection');
+});
+
 test('exclusive transfer waits for polling then routes fragmented binary replies without concurrent commands',async()=>{
  let controller,transferring=false,releaseTransfer;const writes=[];
  const port={readable:new ReadableStream({start(c){controller=c;}}),writable:new WritableStream({write(raw){const text=new TextDecoder().decode(raw);writes.push(text);if(text==='DDSTAT?\n'){assert.equal(transferring,false);controller.enqueue(new TextEncoder().encode(JSON.stringify(state)+'\n'));}else if(text==='binary'){transferring=true;controller.enqueue(new Uint8Array([0,10]));controller.enqueue(new Uint8Array([255,0]));}else throw Error(text);}}),open:async()=>{},setSignals:async()=>{},close:async()=>{}};

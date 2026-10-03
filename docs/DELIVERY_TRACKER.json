@@ -11,7 +11,7 @@
       "id": 2,
       "owner": "audio",
       "task": "SFX quality and MCU deadline correction",
-      "state": "0.4.4 filter-only flashed and runtime verified; hardware performance pending; 0.4.2 USB failure is historical"
+      "state": "all effects removed in0.4.5; bounded CDC and pitch-preserving engine integration; final host/ARM and hardware gates pending"
     },
     {
       "id": 3,
@@ -516,12 +516,12 @@
   "updated": "2026-10-03",
   "release_status": {
     "installed": "bonsai-8-0.4.4",
-    "installed_verification": "runtime bonsai-8-0.4.4, effects=[filter], unchanged four-song entries/framecounts; no flash/audio readback or library writes",
-    "candidate": "bonsai-8-0.4.4",
-    "candidate_state": "installed; dry/USB-only short hardware passes; combined USB+mirroring fails even with filters bypassed",
+    "installed_verification": "runtime bonsai-8-0.4.4; original four song rows unchanged; new Song5 short3.173s mix saved and fully exported through Python, no sustained recording proof",
+    "candidate": "bonsai-8-0.4.5",
+    "candidate_state": "effect-free candidate built; 6 C sanitizer suites, 41 Python and 141 site tests pass; not flashed",
     "public_installer": "0.4.0 candidate; not a verified release",
     "site_version": "01M40J4331V6AMYAED5JZVP1YV",
-    "site_tests_passed": 138,
+    "site_tests_passed": 141,
     "blocking_measurement": "0.4.4 all eight dry stems + USB capture/mirror: +225/+241 underruns in20.063s; filters bypassed, stable controls",
     "previous_candidate": {
       "version": "bonsai-8-0.4.3",
@@ -570,6 +570,10 @@
     {
       "date": "2026-10-03",
       "decision": "User explicitly retained Filter and removed Echo/Reverb for 0.4.4, then chose high-pass direction. Earlier effect tests remain historical evidence, not pending current-release features."
+    },
+    {
+      "date": "2026-10-03",
+      "decision": "User removed all effects and filters. Prioritize device recording, independent library selection and beat matching. Pitch-preserving browser preparation is implemented; live disconnected sync remains experimental after quality failures."
     }
   ],
   "follow_up_work": [
@@ -577,6 +581,10 @@
       "task": "Volume-triggered stutter investigation",
       "state": "in progress after filter-only installation; user identifies physical +/- master buttons; broader constant-volume USB+mirror failure also reproduced",
       "validation": "controlled physical volume changes with eight stems; compare USB capture/mirroring on and off, retain timing and underrun evidence"
+    },
+    {
+      "task": "Recording shortcut robustness and export",
+      "state": "Host replay reproduced repeated toggle from volume ADC release while FUNCTION held; full-release guard passes. Installed0.4.4 saved3.173s Song5 and complete Python export is non-silent. Long recording and site export pending."
     }
   ]
 }

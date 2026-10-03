@@ -23,4 +23,36 @@ test('upload names appear only after successful publication and drop honestly on
 test('failed deletion retains the row/title; successful deletion removes it and slot reuse is unnamed',async()=>{const h=harness();await h.start();await h.upload();const remove=()=>h.rows().find(row=>row.children[0].children[0].textContent==='Summer vocal').querySelectorAll('button').find(b=>b.textContent==='Delete').onclick();remove();h.backend.removeError=Error('delete was not confirmed');await h.el('delete-confirm').onclick();assert.equal(h.title(3),'Summer vocal');remove();h.backend.removeError=null;await h.el('delete-confirm').onclick();assert.equal(h.title(3),undefined);h.backend.slots.push(song(3));await h.ui.refresh();assert.equal(h.title(3),'Song 3');});
 test('a response arriving after disconnect cannot repopulate a previous player library',async()=>{const h=harness();await h.start();let resolve;h.backend.query=()=>new Promise(r=>{resolve=r;});const pending=h.ui.refresh();h.ui.state(false);resolve({slots:[song(10)]});await pending;assert.equal(h.rows().length,0);assert.match(h.el('library-status').textContent,/Connect Bonsai/);assert.equal(h.ui.busy,false);});
 test('a newly completed recording gets a mix label and filename; stale saved state does not',async()=>{const h=harness();await h.start();h.ui.telemetry({record:{state:4,slot:2}});await h.timers();assert.equal(h.title(2),'Song 2');h.ui.telemetry({record:{state:1,slot:3}});h.backend.slots.push(song(3));h.ui.telemetry({record:{state:4,slot:3}});await h.timers();assert.equal(h.title(3),'Recorded mix');await h.rows().at(-1).querySelectorAll('button').find(b=>b.textContent==='Export').onclick();assert.deepEqual(h.downloads,['Recorded mix-song-3.wav']);});
+test('a failed recording replaces stale recording status, notifies once and leaves the library manageable',async()=>{
+ const h=harness();await h.start();
+ h.ui.telemetry({record:{state:1,slot:3,error:0},playing:[1,1]});
+ assert.match(h.el('library-status').textContent,/Recording on the player/);
+ assert.equal(h.rows()[0].querySelectorAll('button')[0].disabled,true);
+ h.ui.telemetry({record:{state:5,slot:3,error:1},playing:[1,1]});
+ assert.match(h.el('library-status').textContent,/Recording failed/);
+ assert.match(h.el('library-status').textContent,/keep up/);
+ assert.equal(h.messages.length,1);assert.match(h.messages[0],/Recording failed/);
+ assert.equal(h.rows()[0].querySelectorAll('button')[0].disabled,false);
+ assert.equal(h.rows().length,1,'failed take must not create a phantom saved song');
+ await h.ui.refresh();const refreshed=h.el('library-status').textContent;
+ h.ui.telemetry({record:{state:5,slot:3,error:1},playing:[1,1]});
+ assert.equal(h.messages.length,1,'status polling must not repeatedly notify the same failure');
+ assert.equal(h.el('library-status').textContent,refreshed,'later failure polls must not overwrite library operations');
+ h.ui.telemetry({record:{state:1,slot:3,error:0},playing:[1,1]});
+ h.ui.telemetry({record:{state:5,slot:3,error:5},playing:[0,0]});
+ assert.equal(h.messages.length,2,'a new failed take should notify again');
+ assert.match(h.el('library-status').textContent,/verified/);
+ assert.doesNotMatch(h.el('library-status').textContent,/saved in Song/);
+});
+test('unknown recording errors are reported honestly and a later successful take still refreshes',async()=>{
+ const h=harness();await h.start();
+ h.ui.telemetry({record:{state:3,slot:3,error:0},playing:[0,0]});
+ h.ui.telemetry({record:{state:5,slot:3,error:99},playing:[0,0]});
+ assert.match(h.el('library-status').textContent,/Recording failed/);
+ assert.match(h.el('library-status').textContent,/Check the library/);
+ assert.doesNotMatch(h.el('library-status').textContent,/not published|songs.*unchanged|saved in Song/i);
+ h.ui.telemetry({record:{state:1,slot:3,error:0}});h.backend.slots.push(song(3));
+ h.ui.telemetry({record:{state:4,slot:3,error:0}});await h.timers();
+ assert.equal(h.title(3),'Recorded mix');
+});
 test('flash UI separates transfer acknowledgement from running-version confirmation',async()=>{const h=harness();await h.start();await h.el('firmware-open').onclick();assert.match(h.el('firmware-status').textContent,/stock-library/);h.el('firmware-consent').checked=true;await h.el('flash-firmware').onclick();assert.match(h.el('firmware-status').textContent,/transfer acknowledged/);assert.doesNotMatch(h.el('firmware-status').textContent,/installed/);h.ui.telemetry({firmware:'bonsai-8-0.4.0'});assert.match(h.el('firmware-status').textContent,/update is not verified/);h.ui.telemetry({firmware:'bonsai-8-0.4.1'});assert.match(h.el('firmware-status').textContent,/player reports Bonsai 8 0.4.1/);assert.match(h.el('firmware-status').textContent,/readback is unavailable/);});

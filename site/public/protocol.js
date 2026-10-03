@@ -195,7 +195,7 @@ export class SP1Connection {
   library(){return this.withExclusive(()=>this.jsonCommand('library','DDLIB?\n',5000));}
   loadSong(deck,slot){
     if(![0,1].includes(deck)||!Number.isInteger(slot)||slot<1||slot>16)return Promise.reject(new Error('Invalid deck or song.'));
-    return this.withExclusive(async()=>{const result=await this.jsonCommand('load',`DDLOAD ${deck} ${slot}\n`,5000);if(!result.loaded)throw new Error(result.error);return result;});
+    return this.withExclusive(async()=>{const result=await this.jsonCommand('load',`DDLOAD ${deck} ${slot}\n`,5000);if(!result.loaded)throw new Error(result.error);if(result.deck!==deck||result.slot!==slot)throw new Error('The player acknowledged a different deck or song. Check its loaded songs before retrying.');return result;});
   }
   resolveRaw(){if(this.pending?.kind!=='raw'||this.rawBytes.length<this.pending.count)return;const pending=this.pending;this.pending=null;clearTimeout(pending.timer);pending.resolve(new Uint8Array(this.rawBytes.splice(0,pending.count)));}
   rawCommand(request,count,timeout=6000){

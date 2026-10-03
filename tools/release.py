@@ -24,16 +24,22 @@ def require(condition, message):
     if not condition:
         raise ValueError(message)
 
-def filter_only_version(version):
+def version_tuple(version):
     require(isinstance(version, str) and re.fullmatch(r'\d+\.\d+\.\d+', version),
             'Invalid release version')
-    return tuple(map(int, version.split('.'))) >= (0, 4, 4)
+    return tuple(map(int, version.split('.')))
+
+def release_effects(version):
+    value=version_tuple(version)
+    if value >= (0,4,5): return []
+    if value >= (0,4,4): return ['filter']
+    return ['filter','echo','reverb']
 
 def playback_cases(manifest):
-    if filter_only_version(manifest.get('version')):
-        require(manifest.get('effects') == ['filter'], 'Filter-only capability missing')
-        return ('dry', 'filter', 'usb_mirror')
-    return CASES
+    effects=release_effects(manifest.get('version'))
+    if version_tuple(manifest['version']) >= (0,4,4):
+        require(manifest.get('effects') == effects, 'Effect capability mismatch')
+    return tuple(case for case in CASES if case in ('dry','usb_mirror') or case in effects)
 
 def delta(before, after):
     require(isinstance(before, int) and isinstance(after, int), 'Invalid counter')
@@ -49,8 +55,9 @@ def stable_gains(states):
 
 def validate_playback(report, version, case):
     require(case in CASES, 'Unknown playback gate')
-    filter_only = filter_only_version(version)
-    require(not filter_only or case not in ('echo', 'reverb'), 'Effect is no longer supported')
+    effects=release_effects(version)
+    filter_only=effects==['filter']
+    require(case in ('dry','usb_mirror') or case in effects, 'Effect is no longer supported')
     require(report.get('seconds', 0) >= 20, 'Need at least twenty measured seconds')
     require(report.get('verdict') == 'PASS' and not report.get('error')
             and not report.get('changed'), 'Measurement was not a stable PASS')
@@ -64,8 +71,8 @@ def validate_playback(report, version, case):
     first = states[0]
     for status in states:
         require(status.get('firmware') == 'bonsai-8-' + version, 'Wrong runtime version')
-        if filter_only:
-            require(status.get('effects') == ['filter'], 'Runtime effect capability mismatch')
+        if version_tuple(version) >= (0,4,4):
+            require(status.get('effects') == effects, 'Runtime effect capability mismatch')
         require(status.get('playing') == [1, 1] and status.get('mute') == [0, 0],
                 'Both decks and every stem must be audible')
         gains = status.get('gains', [])
@@ -83,6 +90,8 @@ def validate_playback(report, version, case):
                     for key in COUNTERS), 'New fault or clipping counter')
     fx = first.get('fx', [])
     require(len(fx) == 8, 'Missing effect settings')
+    if not effects:
+        require(all(value == 0 for value in fx), 'Effect state must be zero')
     if filter_only:
         require(all(value >> 16 in (0, 1) and (value & 0xffff) <= 256 for value in fx),
                 'Unsupported runtime effect setting')

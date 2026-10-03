@@ -2,13 +2,13 @@
 
 Two songs. Eight stems. Your mix.
 
-User guide / Firmware 0.4.4 candidate and companion site / 3 October 2026
+User guide / Firmware 0.4.5 candidate and companion site / 3 October 2026
 
-Bonsai 8 turns the SP-1 into a two-deck stem player. Choose a song for **Deck A** and another for **Deck B**. Bring their voices, drums and instruments together, shape each stem, and record the result on the player.
+Bonsai 8 turns the SP-1 into a two-deck stem player. Choose a song for **Deck A** and another for **Deck B**. Bring their voices, drums and instruments together, balance their levels, and record the result on the player.
 
 The four faders control one deck at a time. Tap **FUNCTION** to change decks. The other deck keeps playing with the levels you left it at.
 
-**Release status:** The test player now runs the filter-only 0.4.4 candidate, with its four song entries unchanged. Eight-stem dry playback and USB audio alone passed short tests, but USB audio together with mirroring still caused dropouts. This is not a verified release. Check the exact version and test status in the website installer before updating. Opening the website does not update your player. The older 0.4.0–0.4.3 effect controls are noted in section 04.
+**Release status:** This guide describes the **0.4.5 candidate**, which removes all effects and changes USB response handling. Check `HARDWARE_TEST.md` in the project repository for the current installed version and hardware test results. The candidate adds manually tapped beat grids and live pitch-preserving tempo/sync controls. They still need hardware validation; wider tempo changes can blur or repeat transients. This is not a completed release. In historical 0.4.4 tests, eight-stem playback, USB audio alone and mirroring alone passed short tests; USB audio together with mirroring caused dropouts. A short, non-silent **3.17-second recording saved as Song 5 and exported successfully**. Longer recording and combined-load reliability remain unverified. This guide describes the 0.4.5 candidate controls; earlier firmware differs. Check the exact version and test status in the website installer before updating. Opening the website does not update your player.
 
 ### Your first playback
 
@@ -18,7 +18,7 @@ The four faders control one deck at a time. Tap **FUNCTION** to change decks. Th
 4. Tap and release PLAY to start A. Tap again to pause.
 5. Tap FUNCTION to select B. Its levels start at zero: move the faders to minimum, then raise the stems you want.
 
-At power-on, A's stem levels start at 100%, B's at 0%, master at 25%, and both speeds at normal. Songs remain stored; deck selections, mix settings and effects reset when you power off.
+At power-on, A's stem levels start at 100%, B's at 0%, master at 25%, and both speeds at normal. Songs remain stored; deck selections and mix settings reset when you power off.
 
 ### Keep this nearby
 
@@ -28,7 +28,7 @@ Alternate address: [placid-shrine-2h5k.here.now](https://placid-shrine-2h5k.here
 
 Illustrated guide: [sp-1.xyz/guide.html](https://sp-1.xyz/guide.html)
 
-This guide covers mixing, physical controls, lights, effects, recording, the companion site, library management, installation and troubleshooting.
+This guide covers mixing, physical controls, lights, recording, the companion site, library management, installation and troubleshooting.
 
 ## 01 / Mix two songs
 
@@ -50,13 +50,21 @@ Use this example to put **Song 2's vocals over Song 1's instruments**. The stand
 
 To try a different vocal, stay on B and browse to any other occupied slot with FUNCTION + wheel. B stops and cues the new song; A keeps its playback state. Tap PLAY to bring B back in. Empty slots are skipped and browsing wraps at the end. Both decks can also use the same song.
 
-### Make the timing work
+### Teach the beat, then sync
 
-Bonsai 8 does not automatically match beats or musical keys. Launch the second song by ear. Its four stems share one timeline, but A and B have separate timelines.
+The 0.4.5 candidate uses beats you tap; it does not detect BPM automatically or match musical keys. All four stems on each deck share its tempo and timeline.
 
-Move the wheel without FUNCTION to change the selected deck's speed and pitch together. With only B's vocal audible, this changes the vocal while A stays unchanged. The vocal's timing changes too: there is no separate pitch control for an individual stem or pitch-preserving stretch.
+1. Play the song on A. Hold **FUNCTION** and tap **Track 1** on at least four steady quarter-note beats. The first tap sets the beat anchor; further taps establish the source BPM. Release the controls.
+2. Select B, play its song and repeat **FUNCTION + Track 1** for at least four beats. Keep the tempo steady while tapping. The connected site's live readout shows tap progress and **Source BPM**, before any tempo change.
+3. With both decks playing, select the deck you want to follow the other. Hold **FUNCTION** and tap **Track 2**. The selected deck adjusts its tempo while preserving pitch and gradually aligns to the other deck's beat grid.
+4. To shift the follower's beat position slightly, hold **FUNCTION + Track 3** and tap the **wheel** in either direction. Listen while adjusting; a grid lock does not guarantee that the musical phrases fit.
+5. Move the **wheel alone** to return the selected deck to manual pitch-preserving tempo control. **FUNCTION + wheel** still browses songs.
 
-Songs loop at their full length. Hold PLAY for about half a second to cue the selected song at its beginning. To cue both, do this on A and B separately. Then FUNCTION + PLAY starts both together; it does not align their beats or intros.
+Grids exist only for the current loaded songs and session. Loading or cueing a song resets its grid: tap it again before syncing. Start both decks and teach both grids before retrying a failed sync. If the tempo ratio is outside the supported range, choose closer tempos; the player must not pretend to lock by clamping the requested rate.
+
+Live stretching can soften attacks or produce repeated/smeared transients, especially at wide tempo ratios. Hardware performance and listening validation are pending. There is no live key matching or independent physical pitch adjustment for each stem; use browser preparation for those pitch changes.
+
+Songs loop at their full length. Hold PLAY for about half a second to cue the selected song at its beginning, paused. FUNCTION + PLAY starts both together when either is paused; that launch alone does not align their beats or intros.
 
 ## 02 / Physical controls
 
@@ -72,20 +80,22 @@ A **tap** is a short press and release. PLAY and track-button holds become a dif
 | A stem's fader | Adjust its volume on the selected deck, after pickup. |
 | A track button, tap | Mute or unmute that stem on the selected deck. |
 | A track button, hold about 0.5 seconds | Solo that stem on the selected deck until released. |
-| Wheel, without FUNCTION | Change the selected deck's speed and pitch together. |
+| Wheel, without FUNCTION | Adjust the selected deck's tempo while preserving pitch; leave sync. |
 | FUNCTION + wheel | Browse all occupied songs on the selected deck. |
+| Hold FUNCTION + tap Track 1 on 4+ quarter beats | Teach the playing song's beat grid and source BPM for this session. |
+| FUNCTION + Track 2, tap | Sync the selected playing deck to the other playing deck, after teaching both grids. |
+| Hold FUNCTION + Track 3, tap wheel | Nudge the active follower's beat phase in either direction. |
 | Volume + / - | Adjust the combined master volume. |
-| FUNCTION + a track button, held | Edit that stem's filter amount with its fader. The wheel has no effect while editing. |
-| FUNCTION + both volume buttons, hold 1 second | Start or stop recording the mix. Release before repeating. |
+| FUNCTION + both volume buttons, hold 1 second | Start or stop recording the mix. Release FUNCTION and both volume buttons fully before repeating. |
 | Track 1 + Track 4, hold 3 seconds | Enter bootloader mode for a firmware update. |
 
 ### Fader pickup
 
 Each deck remembers its four levels during the session. After switching decks, move a fader through that deck's stored level before it takes control. This prevents a sudden jump in the mix. An unmuted track's light blinks while pickup is waiting.
 
-If you do not know the stored level, sweep slowly to one end and back. Once pickup occurs, further movement changes the sound. The same rule applies when a fader returns from effect control to volume.
+If you do not know the stored level, sweep slowly to one end and back. Once pickup occurs, further movement changes the sound.
 
-Solo affects only the selected deck. It does not silence the other deck or raise a fader that is at zero. Song changes keep the deck's current levels, mutes, speed and effects until power-off.
+Solo affects only the selected deck. It does not silence the other deck or raise a fader that is at zero. Song changes keep the deck's current levels, mutes and speed until power-off.
 
 ## 03 / Read the lights
 
@@ -109,14 +119,13 @@ A lit track light means that stem exists and is unmuted on the selected deck. It
 | Situation | Side-light display |
 | --- | --- |
 | Hold FUNCTION to browse | Song-slot position and group. See below. |
-| Edit a filter (0.4.4) | Side light 1 identifies Filter. |
 | Recording | All four blink slowly. |
 | Recording stopped; draining or saving | All four blink faster. Pause both decks and keep power on. |
 | Recording saved | Normal deck lights return. |
 | Recording failed | The outer lights flash. Do not assume the take was saved. |
 | Storage unavailable or unsupported | Alternating pairs. Do not erase the library to troubleshoot this. |
 
-During a file transfer, all four track lights blink. Recording indicators take priority over the effect and deck display.
+During a file transfer, all four track lights blink. Recording indicators take priority over the deck display.
 
 ### Song-slot display
 
@@ -124,39 +133,39 @@ While FUNCTION is held, a steady side light gives the slot's position within a g
 
 For example, slot 6 shows light 2 steady and light 2 blinking at the same position, so the steady light hides that blink. Use the connected site's A/B readouts when you need an unambiguous song number.
 
-## 04 / Shape a stem
+## 04 / Keep the mix clear
 
-In **0.4.4**, each of the eight deck/stem positions has its own **high-pass filter**. Increasing its amount removes more bass and low frequencies while keeping the brighter highs. The filter stays active after you release the controls, including when that deck changes songs. Its setting resets at power-off.
+The **0.4.5 candidate has no effects**. Filter, Echo and Reverb are removed. The faders control stem volume; there is no effect-editing gesture or effect-choice light pattern.
 
-1. Tap FUNCTION to select the deck you want.
-2. Hold FUNCTION and that stem's track button together. Keep both held while editing. Side light 1 identifies Filter.
-3. Move that stem's fader through its stored filter amount to pick it up, then adjust. After power-on, begin at minimum to pick up the starting amount of zero.
-4. Release the buttons. The fader returns to volume control with pickup, so it will not jump the stem's level.
+### Leave room for the second song
 
-**To bypass the filter, set its amount to zero using the same gesture.** The wheel has no effect while editing the filter. Release the buttons to use the wheel for its normal deck speed/pitch control.
+1. Begin with one deck. Pick up its faders and set moderate levels.
+2. Bring in only the stems you want from the other deck. For a vocal over another song's instruments, keep the second song's drums, bass and other stems muted or at zero.
+3. If two parts compete, lower one before raising the other. Two bass lines or two drum patterns can clash even when playback is smooth.
+4. Use the volume buttons to set the combined listening level. If the mix distorts, reduce the stem levels and master volume.
 
-**Older firmware, 0.4.0–0.4.3:** These versions have Filter, Echo and Reverb. While holding FUNCTION + a stem button, the wheel cycles those three choices; side lights 1, 2 and 3 identify them. That stem's fader sets the amount, and zero bypasses it. This is the historical mapping. The installed 0.4.4 removes Echo and Reverb and uses the filter-only controls above. Removing them alone does not establish that USB playback is reliable.
+There is no separate physical deck crossfader: build fades with the stem levels. Muting a stem silences it without changing its saved fader level.
 
-### Volume and pitch while mixing
+### Volume and tempo while mixing
 
-Use the selected deck's four faders to balance its stems. The volume buttons change the combined master output. There is no separate deck crossfader: build fades with the stem levels.
-
-The wheel changes the selected deck's speed from **0.5x to 1.25x**. Pitch follows speed, and all audible stems on that deck change together. To pitch just the vocal against another song's drums, isolate the vocal on one deck and put the drums on the other.
-
-Begin with moderate stem levels. If the combined mix distorts, lower the stem levels and master. If an effect itself sounds distorted, reduce its amount or bypass it. Turning the master down cannot undo distortion already created inside an effect.
+The wheel alone changes the selected deck's tempo from **0.5x to 1.25x** while preserving pitch and exits sync. All its stems stay on the same timeline. Wide ratios can produce transient artifacts; the accepted range is not a sound-quality guarantee. Independent stem pitch and key matching are available through browser preparation, not the physical controls.
 
 Headphones carry the same combined mix as the speaker; there is no separate headphone preview deck.
 
+### Before recording
+
+Check both decks' songs, mutes, levels and speed. The take captures the combined output, including the master level, so a silent or very quiet master produces a silent or quiet recording. Leave an empty song slot and keep a copy of your source audio.
+
 ## 05 / Record your mix
 
-Record A and B directly on the SP-1, without a computer. The take includes the audible mix, effects, pitch changes and master-volume moves. It saves to the **first empty song slot**; at least one of the 16 slots must be free.
+Record A and B directly on the SP-1, without a computer. The take includes the audible mix, deck tempo changes and master-volume moves. It saves to the **first empty song slot**; at least one of the 16 slots must be free.
 
 ### Start, perform, stop
 
 1. Prepare your mix and start playback.
-2. Hold FUNCTION and both volume buttons for **one second**, then release. All four side lights blink slowly while recording.
-3. Perform with the faders, mutes, deck switch, wheel and effects. Song changes and library transfers are unavailable until the take is finished and saved.
-4. Hold FUNCTION and both volume buttons for one second again, then release to stop. The side lights blink faster as the take finishes.
+2. Hold FUNCTION and both volume buttons for **one second**, then fully release FUNCTION and both volume buttons. All four side lights blink slowly while recording.
+3. Perform with the faders, mutes, deck switch and wheel. Song changes and library transfers are unavailable until the take is finished and saved.
+4. Hold FUNCTION and both volume buttons for one second again, then fully release all three controls to stop. The side lights blink faster as the take finishes.
 
 ### Pause both decks to save
 
@@ -167,6 +176,8 @@ Record A and B directly on the SP-1, without a computer. The take includes the a
 The take is one stereo mix on **Track 1**. Tracks 2-4 are empty; recording does not split the finished mix back into eight stems. It may replay more quietly through the player's normal mix levels. Export preserves the recorded level.
 
 ### Limits to remember
+
+Historical 0.4.4 evidence is one non-silent 3.17-second take saved to Song 5 and exported. It does not verify a long performance, all-eight-stem recording, or recording while USB audio and mirroring are active. Check the hardware report for subsequent recording tests on 0.4.5.
 
 A take lasts up to about eight minutes. At the limit it stops automatically, then follows the same pause-and-save process. The take is not ready until saving succeeds.
 
@@ -208,7 +219,7 @@ The file-size limit bounds decoding and separation memory: a compressed song exp
 5. Choose **Prepare Deck A** or **Prepare Deck B**. The finished song is selected for export/upload, and its original remains in the tab's library. Cancel leaves the existing songs intact.
 6. Choose **Align on next beat** to start or align the two grids on the browser audio clock. Listen and correct the grids if needed. Export the selected prepared stems, or connect the player and upload them to an empty slot.
 
-This is browser preparation, not live automatic matching on a disconnected SP-1. Prepared files can play on the physical player afterward, but physical starts still need manual timing. A fixed beat grid cannot follow changing tempo. Pitch processing can soften transients or change vocal tone; it does not preserve formants or turn a major song into a minor arrangement. The normal speed/pitch rocker still changes timing and pitch together.
+This prepares new audio files in the browser. Uploading them does not transfer the browser beat grids: teach the physical player with FUNCTION + Track 1 before using its live sync. Browser key/pitch preparation is separate from on-device beat following. A fixed beat grid cannot follow changing tempo. Pitch processing can soften transients or change vocal tone; it does not preserve formants or turn a major song into a minor arrangement. The disconnected browser mixer's normal Speed / pitch control still changes timing and pitch together.
 
 ### Connect the player
 
@@ -217,7 +228,7 @@ This is browser preparation, not live automatic matching on a disconnected SP-1.
 3. Use the physical controls. The digital model follows reported fader positions, button presses and lights. The connected site shows the selected deck's settings and both song positions.
 4. Choose **Listen here** to hear the physical stereo mix through the computer and see its waveform. Allow audio-input permission; the site uses the player's named USB input.
 
-The connected 3D model is a monitor. Its browser controls do not remotely move physical faders or change physical pitch. **Load A / Load B** in the library are separate actions that can choose the songs on the player.
+The connected 3D model is a monitor. Its browser controls do not remotely move physical faders or change physical tempo. **Load A / Load B** in the library are separate actions that can choose the songs on the player.
 
 USB audio is the combined mix, not eight separate input channels. The physical master changes its level. Use computer output volume for local listening. Listening through both outputs can sound like an echo because USB audio and the screen add delay. The song timers show source position, not beat markers.
 
@@ -280,17 +291,16 @@ For illustrated, step-by-step help, open [sp-1.xyz/guide.html](https://sp-1.xyz/
 | What you notice | Try this |
 | --- | --- |
 | Deck B plays silently | B starts with all levels at zero. Select B, move its faders to minimum for pickup, raise the wanted stems, unmute them and check master. |
-| A fader does nothing | Cross its stored level to pick it up. Switching decks or leaving effect mode can require pickup again. |
+| A fader does nothing | Cross its stored level to pick it up. Switching decks can require pickup again. |
 | PLAY restarts the song | The press lasted long enough to cue. Use a short tap for pause/resume. |
 | FUNCTION powers off | Hold it alone for less than 1.5 seconds when switching decks; press the second control promptly for combinations. |
 | Solo still leaves another song audible | Solo affects only the selected deck. Pause or mute the other deck separately. |
-| Songs drift or clash | Match their launch and speed by ear. There is no automatic beat or key synchronization; speed changes pitch too. |
-| The effect seems stuck on | Hold FUNCTION + that track button and pick up its effect amount, then move the fader to zero. |
+| Songs drift or clash | Tap each playing song's quarter beats with FUNCTION + Track 1, then sync the selected follower with FUNCTION + Track 2. Use FUNCTION + Track 3 + wheel for phase adjustment. Keys and musical phrases are not matched automatically. |
 | Recording stopped but no new song appears | Pause both decks and wait for normal side lights. Outer flashing lights mean the take failed. Check for an empty slot before trying again. |
 | A recorded mix only uses Track 1 | Correct: the complete stereo mix is on Track 1. The other three stems are empty. |
 | The site cannot connect | Power on normally, use a data cable and desktop Chrome or Edge, and close other player connections. |
 | No sound through Listen here | Check audio-input permission and whether the computer sees a Bonsai 8 or SP-1 Dual Deck USB input. Reconnect the powered-on player. |
-| Music becomes choppy | Stop Listen here and bypass the filter to compare. The earlier 0.4.2 failed the eight-stem USB/mirroring test with two filters; installed 0.4.4 still needs its own hardware tests. A moving timer does not prove clean audio. |
+| Music becomes choppy | Stop Listen here and disconnect the site to compare standalone playback. Historical 0.4.4 tests failed combined USB audio and mirroring even with its filter bypassed. Check the hardware report for the current version and results. A moving timer does not prove clean audio. |
 | Side lights alternate in pairs | Storage is unavailable or unrecognized. Reconnect and check the site status; do not erase an existing library as a troubleshooting step. |
 
-For a repeatable problem, note the firmware version, songs on A and B, active stems, speeds, effects, and whether recording or USB listening was active. Keep your source audio backed up.
+For a repeatable problem, note the firmware version, songs on A and B, active stems, speeds, and whether recording or USB listening was active. Keep your source audio backed up.

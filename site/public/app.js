@@ -1,10 +1,10 @@
-import {setupLibrary} from './library-ui.js?v=20261003-bonsai-library-01';
+import {setupLibrary} from './library-ui.js?v=20261003-recording-library-02';
 import { AudioEngine } from './audio.js?v=20261003-two-decks-01';
 import { setupBrowserMixer, exportSnapshot } from './browser-mixer.js?v=20261003-layout-02';
 import { setupMatching } from './match.js?v=20261003-match-01';
 import { Device } from './device.js?v=20261002-bonsai-01';
 import { NAMES, time, clamp, wav, decodeControls } from './core.js';
-import { SP1Connection, selectedDeckControls } from './protocol.js?v=20261002-bonsai-01';
+import { SP1Connection, selectedDeckControls } from './protocol.js?v=20261003-load-ack-02';
 import { LiveSP1Audio, deviceProgress } from './live-audio.js?v=20261003-monitor-cancel-04';
 import { DEFAULT_BODY_HEIGHT } from './control-height.js?v=20261002-bonsai-01';
 import { MirrorTimeline, MIRROR_KEYS } from './mirror.js?v=20261002-bonsai-01';
@@ -69,6 +69,15 @@ $('view').onchange=e=>device?.view(e.target.value);
 $('view-reset').onclick=()=>{$('view').value='3d';device?.view('3d');};
 document.addEventListener('keydown',e=>{if(browserConnected)return;if(['INPUT','TEXTAREA','SELECT','BUTTON'].includes(e.target.tagName)||document.querySelector('dialog[open]')||e.repeat||e.metaKey||e.ctrlKey||e.altKey)return;if(e.code==='Space'){e.preventDefault();safe(()=>e.shiftKey?(audio.decks.every(deck=>deck.playing)?audio.pauseAll():audio.playBoth()):audio.toggle())();}if(e.key.toLowerCase()==='a')browserMixer.select(0);if(e.key.toLowerCase()==='b')browserMixer.select(1);if(/^[1-4]$/.test(e.key))control(`track${Number(e.key)-1}`);});
 function drawWaves(){for(let i=0;i<4;i++){const c=$(`wave-${i}`).getContext('2d');c.clearRect(0,0,280,38);c.strokeStyle=colors[i];c.lineWidth=2;const data=audio.buffers[i]?.getChannelData(0);c.beginPath();if(!data){c.moveTo(0,19);c.lineTo(280,19);}else{for(let x=0;x<140;x++){let max=0;const start=Math.floor(x/140*data.length),end=Math.floor((x+1)/140*data.length);const step=Math.max(1,Math.floor((end-start)/80));for(let s=start;s<end;s+=step)max=Math.max(max,Math.abs(data[s]));const h=Math.max(1,max*17);c.moveTo(x*2,19-h);c.lineTo(x*2,19+h);}}c.stroke();}}
+function showRateDisplay(speed,preservesPitch=false,physical=false){
+ const value=Number((preservesPitch?speed*100:12*Math.log2(speed)).toFixed(1));
+ $('pitch-label').textContent=preservesPitch?'Deck tempo':'Speed / pitch';
+ $('pitch-unit').textContent=preservesPitch?'%':'st';
+ $('pitch-value').value=(!preservesPitch&&!physical&&value>0?'+':'')+value;
+ $('pitch-down').setAttribute('aria-label',preservesPitch?'Decrease deck tempo':'Pitch down one semitone');
+ $('pitch-up').setAttribute('aria-label',preservesPitch?'Increase deck tempo':'Pitch up one semitone');
+ $('mix-help').textContent=preservesPitch?'This connected player preserves pitch while changing deck tempo. Adjust it on the physical player.':'The wheel changes speed and pitch together. Use Match songs to prepare tempo and independent stem pitch changes.';
+}
 function showBrowserDeck(){
  const deck=audio.deck(),media=deck.media;songName=media.name;mode=media.mode;original=media.original;pitch=12*Math.log2(deck.speed);
  if(browserConnected)return;
@@ -77,7 +86,7 @@ function showBrowserDeck(){
  $('song-sub').textContent=mode==='empty'?'Load music above or try both demos':mode==='source'?'Original mix · ready to separate':mode==='demo'?'Original synth demo · 4 independent layers':`${deck.buffers.filter(Boolean).length} stems · local playback`;
  $('stem-state').textContent=mode==='empty'?'No stems':mode==='source'?'Full mix':`${deck.buffers.filter(Boolean).length} stems`;
  $('play').disabled=!deck.duration;$('seek').disabled=!deck.duration;$('download').disabled=exportBusy||['source','empty'].includes(mode);
- $('time-duration').textContent=`/ ${time(deck.duration)}`;$('pitch-value').value=pitch>0?`+${Number(pitch.toFixed(1))}`:String(Number(pitch.toFixed(1)));
+ $('time-duration').textContent=`/ ${time(deck.duration)}`;showRateDisplay(deck.speed);
  $('loop').disabled=!deck.duration;$('loop').classList.toggle('active',deck.loop);$('loop').setAttribute('aria-pressed',String(deck.loop));
  $('master').value=Math.round(audio.volume*100);$('master-value').value=`${Math.round(audio.volume*100)}%`;
  for(let i=0;i<4;i++)$(`track-name-${i}`).textContent=mode==='source'?(i===0?'Full mix':'Empty'):NAMES[i];
@@ -153,18 +162,37 @@ const modalLinks=[['compact-connect','connect-dialog'],['connect-open','connect-
 for(const [button,dialog] of modalLinks)$(button).onclick=()=>$(dialog).showModal();
 for(const dialog of document.querySelectorAll('dialog')){dialog.querySelector('[data-close]').onclick=()=>dialog.close();dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}});}
 const hardwareKeys=['forward','volumeUp','rewind','volumeDown','track3','track2','track1','track0','play','function'];
+function showHardwareSync(state){
+ const readout=$('hardware-sync');let text='';
+ const pair=(key,lo,hi)=>Array.isArray(state?.[key])&&state[key].length===2&&state[key].every(v=>Number.isInteger(v)&&v>=lo&&v<=hi);
+ if(state?.pitch_preserving===1&&[0,1].includes(state.deck)&&pair('grid_bpm',0,300000)&&pair('grid_valid',0,1)&&pair('sync',0,3)&&pair('sync_error',0,9)&&pair('tap_count',0,4)&&state.grid_valid.every((valid,k)=>!valid||state.grid_bpm[k]>=20000)){
+  const k=state.deck,error=state.sync_error[k],taps=state.tap_count[k];
+  const source=state.grid_valid[k]?`Source ${Number((state.grid_bpm[k]/1000).toFixed(1))} BPM`:'Source BPM unknown';
+  const guidance={2:'Tap four steady beats for both songs on the player.',3:'Start both decks, then retry sync.',4:'Choose songs closer in tempo, then retry sync.',5:'Song changed; tap its beat again, then retry sync.',6:'Tap four steady beats again while the song plays.',7:'Playback moved; retry sync on the player.',8:'Enable sync on the selected deck first.',9:'Retry on the player.'};
+  let status;
+  if(error>=2)status=`${error===8?'Manual tempo':'Sync unavailable'}. ${guidance[error]}`;
+  else if(taps>0&&taps<4)status=`Tap ${taps}/4. Keep tapping steady beats on the player.`;
+  else if(error===1)status='Waiting for the player.';
+  else if(state.sync[k]>0&&state.sync[k]<3&&!state.grid_valid.every(Boolean))status='Sync unavailable. Tap beats for both songs on the player.';
+  else status=['Manual tempo','Aligning beats','Beat locked','Sync unavailable. Retry on the player.'][state.sync[k]];
+  text=`Deck ${k?'B':'A'} · ${source} · ${status}`;
+ }
+ // Unchanged telemetry must not repeatedly announce the same live status.
+ if(readout.textContent!==text)readout.textContent=text;
+ readout.hidden=!text;
+}
 async function mirrorDualDeck(state) {
  const firstStatus=hardwareState?.firmware!==state.firmware;
  const mix=selectedDeckControls(state),deck=mix.deck;hardwareState=state;libraryUI?.telemetry(state);device?.setHardwareMode(true);
  $('stem-state').textContent='Physical controls';for(let i=0;i<4;i++)$(`track-name-${i}`).textContent=NAMES[i];$('hardware-deck').hidden=false;$('mix-heading').textContent=`Physical deck ${deck?'B':'A'}`;
  $('song-name').textContent=`Song ${state.slots[deck]||'—'}`;$('song-sub').textContent='Live controls from your player';
- $('hardware-deck').textContent=`Deck ${deck?'B':'A'} · Song ${state.slots[deck] || '—'} · ${state.playing[deck]?'Playing':'Paused'}`;
+ $('hardware-deck').textContent=`Deck ${deck?'B':'A'} · Song ${state.slots[deck] || '—'} · ${state.playing[deck]?'Playing':'Paused'}`;showHardwareSync(state);
  $('connect-label').textContent=`Bonsai 8 · Deck ${deck?'B':'A'}`;
  mix.gains.forEach((value,i)=>gain(i,value));
  for(let i=0;i<4;i++){for(const type of ['mute','solo']){const value=type==='mute'&&mix.mutes[i];$(`${type}-${i}`).classList.toggle('active',value);$(`${type}-${i}`).setAttribute('aria-pressed',String(value));}}
  $('master').value=Math.round(mix.volume*100);$('master-value').value=`${Math.round(mix.volume*100)}%`;
- const nextPitch=12*Math.log2(mix.speed);
- $('pitch-value').value=Number(nextPitch.toFixed(1));
+ // Only an explicit runtime capability changes speed from tape pitch to tempo.
+ showRateDisplay(mix.speed,state.pitch_preserving===1,true);
  // Hardware monitoring never starts an unrelated browser song.
  audio.pauseAll();
  $('live-player').hidden=false;updateListenAvailability();
@@ -183,7 +211,7 @@ const hardware = new SP1Connection((f,b,state)=>{
  if(state)return mirrorDualDeck(state);
  const legacy=decodeControls(f,b);let values=legacy.gains;if($('reverse-faders').checked)values.reverse();values.forEach((v,i)=>gain(i,$('invert-faders').checked?1-v:v));
  legacy.buttons.forEach((pressed,i)=>{device?.setButton(hardwareKeys[i],pressed);if(previousButtons&&pressed&&!previousButtons[i])control(hardwareKeys[i]);});previousButtons=legacy.buttons;
-},(message,connected=false)=>{browserConnected=connected;browserMixer.connected(connected);matching?.refresh();$('hardware-status').textContent=message;$('connect-open').classList.toggle('connected',connected);$('connect-label').textContent=connected?'Bonsai 8 connected':'Connect SP–1';$('compact-connect-label').textContent=connected?'Player connected':'Connect player';$('compact-connect').classList.toggle('connected',connected);$('load-deck').disabled=connected;$('connect').hidden=connected;$('disconnect').hidden=!connected;libraryUI?.state(connected);for(const id of ['master','pitch-down','pitch-up','reset-mix','play','loop','seek',...Array.from({length:4},(_,i)=>`gain-${i}`),...Array.from({length:4},(_,i)=>`mute-${i}`),...Array.from({length:4},(_,i)=>`solo-${i}`)])$(id).disabled=connected;if(!connected){hardwareState=null;$('mix-heading').textContent='Browser mix';stopLiveMonitor();$('live-player').hidden=true;mirrorTimeline.reset();device?.setHardwareMode(false);$('hardware-deck').hidden=true;hardwareKeys.forEach(key=>device?.setButton(key,false));showBrowserDeck();}},packet=>{
+},(message,connected=false)=>{browserConnected=connected;browserMixer.connected(connected);matching?.refresh();$('hardware-status').textContent=message;$('connect-open').classList.toggle('connected',connected);$('connect-label').textContent=connected?'Bonsai 8 connected':'Connect SP–1';$('compact-connect-label').textContent=connected?'Player connected':'Connect player';$('compact-connect').classList.toggle('connected',connected);$('load-deck').disabled=connected;$('connect').hidden=connected;$('disconnect').hidden=!connected;libraryUI?.state(connected);for(const id of ['master','pitch-down','pitch-up','reset-mix','play','loop','seek',...Array.from({length:4},(_,i)=>`gain-${i}`),...Array.from({length:4},(_,i)=>`mute-${i}`),...Array.from({length:4},(_,i)=>`solo-${i}`)])$(id).disabled=connected;if(!connected){hardwareState=null;showHardwareSync(null);$('mix-heading').textContent='Browser mix';stopLiveMonitor();$('live-player').hidden=true;mirrorTimeline.reset();device?.setHardwareMode(false);$('hardware-deck').hidden=true;hardwareKeys.forEach(key=>device?.setButton(key,false));showBrowserDeck();}},packet=>{
  if(mirrorTimeline.push(packet,performance.now()))$('hardware-status').textContent='Mirror resynchronized after a connection delay.';
 });
 libraryUI=setupLibrary({connection:hardware,audio,sourceTitle:()=>audio.deck().media.name||songName,sourceBusy:()=>busy||importBusy||Boolean(matching?.busy),canUpload:()=>['demo','imported','separated','prepared'].includes(mode)&&!busy&&!importBusy&&!matching?.busy,notify,stopMonitor:stopLiveMonitor});

@@ -17,7 +17,7 @@ class TransferTests(unittest.TestCase):
  def setUpClass(cls):
   cls.tmp=tempfile.TemporaryDirectory()
   lib=Path(cls.tmp.name)/'engine.dylib'
-  subprocess.run(['cc','-shared','-O2','-std=c11','-fPIC',str(ROOT/'firmware/src/dual_engine.c'),str(ROOT/'firmware/src/bonsai_fx.c'),'-o',str(lib)],check=True)
+  subprocess.run(['cc','-shared','-O2','-std=c11','-fPIC',str(ROOT/'firmware/src/dual_engine.c'),str(ROOT/'firmware/src/bonsai_stretch.c'),'-lm','-o',str(lib)],check=True)
   cls.lib=C.CDLL(str(lib));cls.lib.dd_decode.argtypes=[C.c_void_p,C.c_uint8,C.POINTER(Frame)]
  @classmethod
  def tearDownClass(cls): cls.tmp.cleanup()

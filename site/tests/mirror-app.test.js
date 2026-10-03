@@ -142,3 +142,86 @@ test('AbortError from the current monitor start remains quiet and makes Listen a
  assert.equal(status.textContent,pendingStatus);assert.equal(app.elements.get('toast')?.textContent,undefined);
  assert.equal(button.disabled,false);assert.equal(app.monitor.stream,null);
 });
+
+test('explicit pitch-preserving telemetry shows selected deck tempo and restores legacy pitch',async()=>{
+ const app=appHarness();app.connection.onStatus('Connected',true);
+ const value=id=>String(app.elements.get(id)?.value),text=id=>app.elements.get(id)?.textContent;
+ await app.connection.onControls(null,null,{...state,pitch_preserving:1,speed:[49152,81920]});
+ assert.equal(text('pitch-label'),'Deck tempo');assert.equal(text('pitch-unit'),'%');assert.equal(value('pitch-value'),'75');
+ assert.match(text('mix-help'),/preserves pitch/);
+ await app.connection.onControls(null,null,{...state,pitch_preserving:1,deck:1,speed:[49152,81920]});
+ assert.equal(value('pitch-value'),'125','physical deck change must select that deck’s tempo');
+ for(const capability of [undefined,0,true,'1']){
+  await app.connection.onControls(null,null,{...state,pitch_preserving:capability,speed:[81920,65536]});
+  assert.equal(text('pitch-label'),'Speed / pitch');assert.equal(text('pitch-unit'),'st');
+  assert.equal(value('pitch-value'),'3.9');assert.match(text('mix-help'),/speed and pitch together/);
+ }
+});
+
+test('disconnect and local deck selection restore browser pitch without changing local audio speed',async()=>{
+ const app=appHarness();app.audio.decks[0].speed=2**(2/12);app.audio.decks[1].speed=2**(-3/12);
+ app.connection.onStatus('Connected',true);
+ await app.connection.onControls(null,null,{...state,pitch_preserving:1,deck:1,speed:[65536,49152]});
+ assert.equal(String(app.elements.get('pitch-value').value),'75');
+ app.connection.onStatus('Disconnected',false);
+ assert.equal(app.elements.get('pitch-label').textContent,'Speed / pitch');
+ assert.equal(app.elements.get('pitch-unit').textContent,'st');
+ assert.equal(String(app.elements.get('pitch-value').value),'+2');
+ app.device.events.down('function');
+ assert.equal(app.audio.selected,1);assert.equal(String(app.elements.get('pitch-value').value),'-3');
+ assert.equal(app.elements.get('pitch-label').textContent,'Speed / pitch');
+ assert.equal(app.elements.get('pitch-unit').textContent,'st');
+ assert.equal(app.audio.decks[0].speed,2**(2/12));assert.equal(app.audio.decks[1].speed,2**(-3/12));
+});
+
+const syncState={...state,pitch_preserving:1,grid_bpm:[120000,98345],grid_valid:[1,1],sync:[0,2],sync_error:[0,0],tap_count:[4,4]};
+test('selected hardware sync readout labels source BPM and follows deck/state changes',async()=>{
+ const app=appHarness();app.connection.onStatus('Connected',true);
+ await app.connection.onControls(null,null,syncState);
+ const readout=app.elements.get('hardware-sync');assert.equal(readout.hidden,false);
+ assert.equal(readout.textContent,'Deck A · Source 120 BPM · Manual tempo');
+ await app.connection.onControls(null,null,{...syncState,deck:1});
+ assert.equal(readout.textContent,'Deck B · Source 98.3 BPM · Beat locked');
+ await app.connection.onControls(null,null,{...syncState,deck:1,sync:[0,1]});
+ assert.match(readout.textContent,/Aligning beats/);
+ assert.doesNotMatch(readout.textContent,/key|detected|automatic/i);
+});
+
+test('tap progress and every sync error give physical guidance without claiming a beat lock',async()=>{
+ const app=appHarness();app.connection.onStatus('Connected',true);
+ for(let count=1;count<=3;count++){
+  await app.connection.onControls(null,null,{...syncState,grid_bpm:[0,98345],grid_valid:[0,1],tap_count:[count,4],sync_error:[1,0]});
+  assert.match(app.elements.get('hardware-sync').textContent,new RegExp(`Tap ${count}/4`));
+  assert.match(app.elements.get('hardware-sync').textContent,/Source BPM unknown/);
+ }
+ const guidance={2:/Tap four steady beats for both songs/,3:/Start both decks/,4:/closer in tempo/,5:/Song changed/,6:/Tap four steady beats again/,7:/Playback moved/,8:/Enable sync/,9:/Retry on the player/};
+ for(const [code,expected] of Object.entries(guidance)){
+  await app.connection.onControls(null,null,{...syncState,deck:1,sync_error:[0,Number(code)]});
+  const text=app.elements.get('hardware-sync').textContent;
+  assert.match(text,expected);assert.doesNotMatch(text,/Beat locked|Aligning beats/);
+ }
+});
+
+test('sync readout rejects malformed optional telemetry and clears on legacy connection or disconnect',async()=>{
+ const app=appHarness();app.connection.onStatus('Connected',true);
+ await app.connection.onControls(null,null,syncState);const readout=app.elements.get('hardware-sync');
+ const bad=[{grid_bpm:undefined},{grid_bpm:[120000]},{grid_bpm:['120000',98345]},
+  {grid_bpm:[19000,98345]},{grid_valid:[true,1]},{sync:[0,4]},{sync_error:[0,10]},
+  {tap_count:[5,4]},{pitch_preserving:true},{pitch_preserving:'1'},{pitch_preserving:undefined}];
+ for(const patch of bad){
+  await app.connection.onControls(null,null,{...syncState,...patch});
+  assert.equal(readout.hidden,true);assert.equal(readout.textContent,'');
+ }
+ await app.connection.onControls(null,null,{...syncState,deck:1,grid_valid:[0,1]});
+ assert.doesNotMatch(readout.textContent,/Beat locked/,'a missing master grid cannot support the reported lock');
+ await app.connection.onControls(null,null,syncState);app.connection.onStatus('Disconnected',false);
+ assert.equal(readout.hidden,true);assert.equal(readout.textContent,'');
+});
+
+test('sync readout is inside the visible live-player section, outside the connection dialog',()=>{
+ const html=readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
+ const start=html.indexOf('<section id="live-player"'),end=html.indexOf('</section>',start);
+ assert.match(html.slice(start,end),/id="hardware-sync"/);
+ assert.equal((html.match(/id="hardware-sync"/g)||[]).length,1);
+ assert.doesNotMatch(html.slice(html.indexOf('<dialog id="connect-dialog"')),/id="hardware-sync"/);
+});

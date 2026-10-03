@@ -117,3 +117,6 @@ select:not([multiple]){appearance:none;-webkit-appearance:none;min-height:40px;l
 .compact-connect.connected .connection-icon{color:#659657}
 @media(max-width:480px){.connect-button{gap:8px;padding:10px 9px}.connect-button .usb-icon{display:block}.compact-connect{gap:7px}select:not([multiple]){min-height:44px}}
 @media(forced-colors:active){select:not([multiple]){appearance:auto;background-image:none!important;padding-right:8px!important}}
+
+/* Optional physical sync telemetry stays visible beside the live deck clocks. */
+#hardware-sync{margin:0 0 10px;font-size:11px;line-height:1.65;color:var(--ink)}

@@ -3,7 +3,6 @@
  * An underrun holds the entire deck, preventing one stem drifting behind.
  */
 #include "dual_engine.h"
-#include "bonsai_fx.h"
 #include <string.h>
 #include <limits.h>
 static uint32_t bound(uint32_t n, uint32_t lo, uint32_t hi)
@@ -13,8 +12,9 @@ void dd_init(struct dd_engine *e)
  memset(e, 0, sizeof(*e)); atomic_init(&e->master, 64);
  for (unsigned k=0;k<2;k++) {
   struct dd_deck *d=&e->deck[k];
-  atomic_init(&d->read,0); atomic_init(&d->speed,65536);
+  atomic_init(&d->read,0); atomic_init(&d->source_clock,0); atomic_init(&d->speed,65536);
   atomic_init(&d->playing,0); atomic_init(&d->mute_mask,0);
+  bs_init(&d->stretch,0,false);
   for (unsigned s=0;s<4;s++) {
    atomic_init(&d->voice[s].written,0);
    atomic_init(&d->voice[s].gain,k?0:256);
@@ -23,13 +23,67 @@ void dd_init(struct dd_engine *e)
 }
 void dd_reset_deck(struct dd_deck *d,uint8_t mask)
 {
- atomic_store(&d->playing,0); atomic_store(&d->read,0);
+ atomic_store(&d->playing,0); atomic_store(&d->read,0); atomic_store(&d->source_clock,0);
  d->fraction=0; d->envelope=0; d->starved=false;
+ d->source_fraction=0;
+ bs_init(&d->stretch,0,atomic_load_explicit(&d->stretch.enabled,memory_order_relaxed));
  d->last=(struct dd_wide_frame){0,0};
  for(unsigned s=0;s<4;s++) {
   atomic_store(&d->voice[s].written,0);
   d->voice[s].present=!!(mask&(1u<<s)); d->voice[s].current_gain=0;
  }
+}
+void dd_set_stretch(struct dd_deck *d,bool enabled)
+{
+ uint32_t first=atomic_load_explicit(&d->source_clock,memory_order_relaxed);
+ bs_init(&d->stretch,first,enabled);d->fraction=0;d->source_fraction=0;
+ atomic_store_explicit(&d->read,first,memory_order_release);
+}
+bool dd_set_tempo(struct dd_deck *d,uint32_t tempo)
+{return d&&bs_request(&d->stretch,tempo);}
+uint32_t dd_tempo_actual(const struct dd_deck *d)
+{return atomic_load_explicit(&d->stretch.enabled,memory_order_acquire)?
+ bs_actual(&d->stretch):bound(atomic_load_explicit(&d->speed,memory_order_relaxed),32768,81920);}
+static struct bs_frame stretch_source(void *context,unsigned stem,uint32_t p)
+{
+ struct dd_deck *d=context;
+ if(!d->voice[stem].present)return (struct bs_frame){0,0};
+ struct dd_frame x=d->voice[stem].ring[p&(DD_RING-1)];return (struct bs_frame){x.l,x.r};
+}
+static bool stretching(const struct dd_deck *d)
+{
+ const struct bs_state *s=&d->stretch;
+ return atomic_load_explicit(&s->enabled,memory_order_acquire)&&
+  (atomic_load_explicit(&s->active,memory_order_acquire)||
+   atomic_load_explicit(&s->ready,memory_order_acquire)||
+   atomic_load_explicit(&s->requested,memory_order_relaxed)!=65536u);
+}
+uint32_t dd_stretch_service(struct dd_engine *e,uint32_t budget)
+{
+ uint32_t used=bs_cancel_stale(&e->stretch_work)?1u:0u;
+ for(unsigned k=0;k<2&&used<budget;k++) {
+  struct dd_deck *d=&e->deck[k];struct bs_state *s=&d->stretch;
+  if(e->stretch_work.owner&&e->stretch_work.owner!=s)continue;
+  if(!stretching(d)&&!e->stretch_work.owner)continue;
+  uint32_t oldest=atomic_load_explicit(&d->read,memory_order_acquire),written=oldest+DD_RING;
+  uint16_t gains[4];bool any=false;uint32_t mute=atomic_load_explicit(&d->mute_mask,memory_order_relaxed);
+  for(unsigned j=0;j<4;j++) {
+   gains[j]=(mute&(1u<<j))?0:bound(atomic_load_explicit(&d->voice[j].gain,memory_order_relaxed),0,256);
+   if(!d->voice[j].present)continue;
+   any=true;uint32_t n=atomic_load_explicit(&d->voice[j].written,memory_order_acquire)-oldest;
+   if(n>DD_RING)n=0;
+   if(n<written-oldest)written=oldest+n;
+  }
+  if(!any)continue;
+  if(!atomic_load_explicit(&s->active,memory_order_acquire)&&
+     !atomic_load_explicit(&s->ready,memory_order_acquire)&&!e->stretch_work.owner) {
+   uint32_t p=atomic_load_explicit(&d->source_clock,memory_order_acquire);
+   s->first=p;atomic_store_explicit(&s->next_nominal,p,memory_order_relaxed);
+   atomic_store_explicit(&s->next_fraction,0,memory_order_relaxed);
+  }
+  used+=bs_service(s,&e->stretch_work,stretch_source,d,gains,oldest,written,budget-used);
+ }
+ return used;
 }
 uint32_t dd_room(const struct dd_deck *d,unsigned s)
 {
@@ -66,7 +120,6 @@ static int32_t interpolate(int16_t a,int16_t b,uint32_t fraction)
 struct steady_voice {
  const struct dd_frame *ring;
  uint32_t gain;
- struct bonsai_fx_voice *fx;
 };
 static struct dd_wide_frame steady_sample(const struct steady_voice *v,unsigned n,
                                     uint32_t pos,uint32_t fraction)
@@ -96,77 +149,10 @@ static struct dd_wide_frame steady_sample(const struct steady_voice *v,unsigned 
  }
  return (struct dd_wide_frame){l/1024,r/1024};
 }
-static void interpolate_buffer(const struct dd_frame *ring,struct dd_wide_frame *out,
-                               uint32_t count,uint32_t pos,uint32_t fraction,
-                               uint32_t step)
-{
- if(!ring) {memset(out,0,count*sizeof(*out));return;}
- uint32_t i=0;
- if(step==32768&&(fraction==0||fraction==32768)) {
-  /* At 1x each source frame yields its original and a midpoint. Read and
-   * interpolate that pair once, without per-frame phase multiplication. */
-  if(fraction==32768&&count) {
-   struct dd_frame x=ring[pos&(DD_RING-1)],y=ring[(pos+1)&(DD_RING-1)];
-   out[i++]=(struct dd_wide_frame){x.l+((int32_t)y.l-x.l)/2,x.r+((int32_t)y.r-x.r)/2};
-   ++pos;
-  }
-  for(;i+1<count;i+=2,++pos) {
-   struct dd_frame x=ring[pos&(DD_RING-1)],y=ring[(pos+1)&(DD_RING-1)];
-   out[i]=(struct dd_wide_frame){x.l,x.r};
-   out[i+1]=(struct dd_wide_frame){x.l+((int32_t)y.l-x.l)/2,x.r+((int32_t)y.r-x.r)/2};
-  }
-  if(i<count) {struct dd_frame x=ring[pos&(DD_RING-1)];out[i]=(struct dd_wide_frame){x.l,x.r};}
-  return;
- }
- for(;i<count;i++) {
-  struct dd_frame x=ring[pos&(DD_RING-1)],y=ring[(pos+1)&(DD_RING-1)];
-  out[i]=(struct dd_wide_frame){interpolate(x.l,y.l,fraction),interpolate(x.r,y.r,fraction)};
-  fraction+=step;pos+=fraction>>16;fraction&=65535;
- }
-}
-static void render_effect_chunks(struct dd_engine *e,int16_t *out,uint32_t count,
-                                 const struct steady_voice voice[2][4],
-                                 const unsigned voices[2],const bool running[2],
-                                 uint32_t pos[2],uint32_t fraction[2],
-                                 const uint32_t step[2],uint32_t master)
-{
- for(uint32_t offset=0;offset<count;offset+=DD_EFFECT_CHUNK) {
-  uint32_t n=count-offset;
-  if(n>DD_EFFECT_CHUNK) n=DD_EFFECT_CHUNK;
-  for(unsigned k=0;k<2;k++) {
-   memset(e->effect_sum[k],0,n*2*sizeof(e->effect_sum[k][0]));
-   for(unsigned s=0;s<voices[k];s++) {
-    const struct steady_voice *v=&voice[k][s];
-    interpolate_buffer(v->ring,e->effect_frames,n,pos[k],fraction[k],step[k]);
-    if(v->fx) bonsai_fx_process_buffer(v->fx,e->effect_frames,n);
-    if(!v->gain) continue;
-    for(uint32_t f=0;f<n;f++) {
-     e->effect_sum[k][2*f]+=e->effect_frames[f].l*(int32_t)v->gain;
-     e->effect_sum[k][2*f+1]+=e->effect_frames[f].r*(int32_t)v->gain;
-    }
-   }
-   if(running[k]) e->deck[k].last=(struct dd_wide_frame){
-    e->effect_sum[k][2*(n-1)]/1024,e->effect_sum[k][2*(n-1)+1]/1024};
-   if(running[k]) {
-    fraction[k]+=n*step[k];pos[k]+=fraction[k]>>16;fraction[k]&=65535;
-   }
-  }
-  /* Neither deck is narrowed before the two-deck sum and master/headroom.
-   * A full-scale high-pass transient can legitimately exceed int16 here. */
-  for(uint32_t f=0;f<n;f++) {
-   int32_t l=e->effect_sum[0][2*f]/1024+e->effect_sum[1][2*f]/1024;
-   int32_t r=e->effect_sum[0][2*f+1]/1024+e->effect_sum[1][2*f+1]/1024;
-   uint32_t i=2*(offset+f);
-   out[i]=clamp(l*(int32_t)master/256,&e->clips);
-   out[i+1]=clamp(r*(int32_t)master/256,&e->clips);
-  }
- }
-}
 static bool render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
                           uint32_t pos[2],const uint32_t available[2],
                           const uint32_t step[2],const bool play[2],
-                          const bool any[2],const uint16_t gain[2][4],uint32_t master,
-                          struct bonsai_fx_voice *effect[2][4],bool effects_active)
+                          const bool any[2],const uint16_t gain[2][4],uint32_t master)
 {
  /* Most blocks have unchanged controls and ample buffered audio. Validate
   * that once, rather than rechecking ramps, presence and starvation for each
@@ -178,6 +164,7 @@ static bool render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
  uint32_t fraction[2];bool running[2];
  for(unsigned k=0;k<2;k++) {
   struct dd_deck *d=&e->deck[k];
+  if(stretching(d))return false;
   running[k]=play[k]&&any[k];
   if(d->starved||d->envelope!=(running[k]?256:0)) return false;
   fraction[k]=d->fraction;
@@ -185,24 +172,16 @@ static bool render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
   if(running[k]&&available[k]<needed) return false;
   for(unsigned s=0;s<4;s++) {
    struct dd_voice *v=&d->voice[s];
-   if(!running[k]||!v->present) {
-    if(effect[k][s]) voice[k][voices[k]++]=(struct steady_voice){NULL,0,effect[k][s]};
-    continue;
-   }
+   if(!running[k]||!v->present) continue;
    if(v->current_gain!=gain[k][s]) return false;
-   if(gain[k][s]||effect[k][s])
-    voice[k][voices[k]++]=(struct steady_voice){v->ring,gain[k][s],effect[k][s]};
+   if(gain[k][s]) voice[k][voices[k]++]=(struct steady_voice){v->ring,gain[k][s]};
   }
- }
- if(effects_active||!running[0]||!running[1]) {
-  render_effect_chunks(e,out,count,voice,voices,running,pos,fraction,step,master);
-  for(unsigned k=0;k<2;k++) e->deck[k].fraction=fraction[k];
-  return true;
  }
  struct dd_wide_frame last[2]={e->deck[0].last,e->deck[1].last};
  for(uint32_t f=0;f<count;f++) {
   int32_t l=0,r=0;
   for(unsigned k=0;k<2;k++) {
+   if(!running[k]) continue;
    last[k]=steady_sample(voice[k],voices[k],pos[k],fraction[k]);
    l+=last[k].l;r+=last[k].r;
    fraction[k]+=step[k];pos[k]+=fraction[k]>>16;fraction[k]&=65535;
@@ -217,23 +196,13 @@ static bool render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
 }
 void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
 {
- uint32_t pos[2],available[2],step[2]; bool play[2],any[2]={false,false};
+ uint32_t pos[2],before[2],available[2],step[2],clock[2],written[2];
+ bool play[2],any[2]={false,false},stretch[2];
  uint16_t gain[2][4]; uint32_t master=bound(atomic_load(&e->master),0,256);
- struct bonsai_fx_voice *effect[2][4]={{NULL}};
- bool effects_active=false;
- if(e->fx) {
-  bonsai_fx_begin_block(e->fx);
-  for(unsigned k=0;k<2;k++) for(unsigned s=0;s<4;s++) {
-   struct bonsai_fx_voice *v=&e->fx->voice[k*4+s];
-   /* Keep the old effect alive until its bypass fade has completed. */
-   if(v->type!=BONSAI_FX_NONE||v->requested_type!=BONSAI_FX_NONE) {
-    effect[k][s]=v;effects_active=true;
-   }
-  }
- }
  for(unsigned k=0;k<2;k++) {
   struct dd_deck *d=&e->deck[k];
-  pos[k]=atomic_load_explicit(&d->read,memory_order_relaxed); available[k]=DD_RING;
+  pos[k]=atomic_load_explicit(&d->read,memory_order_relaxed); before[k]=pos[k]; available[k]=DD_RING;
+  clock[k]=atomic_load_explicit(&d->source_clock,memory_order_relaxed);stretch[k]=stretching(d);
   step[k]=bound(atomic_load(&d->speed),32768,81920)/2;
   play[k]=atomic_load(&d->playing)!=0; uint32_t mute=atomic_load(&d->mute_mask);
   for(unsigned s=0;s<4;s++) {
@@ -245,16 +214,27 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
    if(n>DD_RING) n=0;
    if(n<available[k]) available[k]=n;
   }
+  written[k]=pos[k]+available[k];
  }
- if(render_steady(e,out,count,pos,available,step,play,any,gain,master,effect,effects_active)) {
-  for(unsigned k=0;k<2;k++) atomic_store_explicit(&e->deck[k].read,pos[k],memory_order_release);
-  return;
- }
+ if(render_steady(e,out,count,pos,available,step,play,any,gain,master)) goto publish;
  for(uint32_t f=0;f<count;f++) {
   int32_t ml=0,mr=0;
   for(unsigned k=0;k<2;k++) {
    struct dd_deck *d=&e->deck[k];
-   bool buffered=available[k]>=(d->starved?512u:2u);
+   bool buffered;
+   if(stretch[k]) {
+    uint32_t nominal=clock[k],fraction=d->source_fraction/2;
+    bool boundary=atomic_load_explicit(&d->stretch.cursor,memory_order_relaxed)==BS_HOP;
+    bool ready=(!play[k]||!any[k])?false:bs_activate(&d->stretch,&nominal,&fraction);
+    if(ready&&boundary) {
+     clock[k]=nominal;d->source_fraction=fraction*2;
+     /* A first descriptor starts on a whole native frame. A dry callback
+      * may have stopped at its midpoint; do not shorten the first grain by
+      * carrying that old interpolation phase into the new output clock. */
+     if(!d->stretch.active_tail)d->fraction=0;
+    }
+    buffered=ready&&bs_buffered(&d->stretch,pos[k],written[k]);
+   } else buffered=available[k]>=(d->starved?512u:2u);
    if(play[k]&&any[k]&&!buffered) {
     if(!d->starved) {++d->underruns;d->starved=true;}
    } else if(buffered) d->starved=false;
@@ -266,42 +246,50 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
     dl=dr=0;
     for(unsigned s=0;s<4;s++) {
      struct dd_voice *v=&d->voice[s];
-     struct bonsai_fx_voice *fx=effect[k][s];
-     if(!v->present) {
-      if(fx) (void)bonsai_fx_process(fx,(struct dd_frame){0,0});
-      continue;
-     }
+     if(!v->present) continue;
      if(v->current_gain<gain[k][s]) ++v->current_gain;
      else if(v->current_gain>gain[k][s]) --v->current_gain;
-     /* Filter state follows the unmuted source before gain, even while muted,
-      * so unmuting cannot introduce a frozen filter-state discontinuity. */
-     if(!v->current_gain&&!fx) continue;
-     struct dd_frame a=v->ring[pos[k]&(DD_RING-1)],b=v->ring[(pos[k]+1)&(DD_RING-1)];
+     /* Every source still advances in phase; a voice at zero gain does not
+      * need interpolation until its audible gain ramp begins again. */
+     if(!v->current_gain) continue;
+     struct dd_frame a,b;
+     if(stretch[k]) {
+      struct bs_frame x=bs_sample(&d->stretch,s,0,stretch_source,d),
+       y=bs_sample(&d->stretch,s,1,stretch_source,d);
+      a=(struct dd_frame){x.l,x.r};b=(struct dd_frame){y.l,y.r};
+     } else {a=v->ring[pos[k]&(DD_RING-1)];b=v->ring[(pos[k]+1)&(DD_RING-1)];}
      int32_t l=interpolate(a.l,b.l,d->fraction);
      int32_t r=interpolate(a.r,b.r,d->fraction);
-     if(fx) {
-      struct dd_wide_frame processed=bonsai_fx_process(fx,(struct dd_frame){l,r});
-      l=processed.l;r=processed.r;
-     }
      dl+=l*v->current_gain; dr+=r*v->current_gain;
     }
     /* 12dB fixed headroom, then saturate the final two-deck bus. */
     dl/=1024; dr/=1024; d->last=(struct dd_wide_frame){dl,dr};
-    d->fraction+=step[k]; uint32_t advance=d->fraction>>16; d->fraction&=65535;
-    pos[k]+=advance; available[k]-=advance;
-   } else if(effects_active) {
-    /* Paused, missing or starved sources feed silence to filters. Their
-     * output is not audible while transport is stopped, but state and effect
-     * changes still advance at the same 48 kHz clock as the other deck. */
-    for(unsigned s=0;s<4;s++) if(effect[k][s])
-     (void)bonsai_fx_process(effect[k][s],(struct dd_frame){0,0});
+    d->fraction+=stretch[k]?32768u:step[k];
+    uint32_t advance=d->fraction>>16;d->fraction&=65535;
+    if(stretch[k]) {
+     if(advance)bs_advance(&d->stretch);
+     d->source_fraction+=bs_actual(&d->stretch);clock[k]+=d->source_fraction>>17;d->source_fraction&=131071;
+     uint32_t retain=bs_retain(&d->stretch);
+     if((int32_t)(retain-clock[k])>0)retain=clock[k];
+     if((int32_t)(retain-pos[k])>0)pos[k]=retain;
+    } else {pos[k]+=advance;available[k]-=advance;}
    }
    ml+=dl*d->envelope/256; mr+=dr*d->envelope/256;
   }
   out[2*f]=clamp(ml*(int32_t)master/256,&e->clips);
   out[2*f+1]=clamp(mr*(int32_t)master/256,&e->clips);
  }
- for(unsigned k=0;k<2;k++) atomic_store_explicit(&e->deck[k].read,pos[k],memory_order_release);
+publish:
+ for(unsigned k=0;k<2;k++) {
+  struct dd_deck *d=&e->deck[k];
+  /* Tape playback consumes and releases the same number of native frames.
+   * Keep the audible clock independent: future stretch modes retain history
+   * without advancing the displayed song merely because storage is released. */
+  uint32_t consumed=pos[k]-before[k];
+  atomic_store_explicit(&d->source_clock,stretch[k]?clock[k]:
+   atomic_load_explicit(&d->source_clock,memory_order_relaxed)+consumed,memory_order_release);
+  atomic_store_explicit(&d->read,pos[k],memory_order_release);
+ }
 }
 bool dd_pickup_move(struct dd_pickup *p,uint16_t target,uint16_t value)
 {

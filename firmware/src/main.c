@@ -74,6 +74,7 @@ extern bool uac2_fs_fb_windows_fmt;
 #include "sp1_emmc.h"
 #ifdef SP1_DUAL_DECK
 #include "dual_engine.h"
+#include "bonsai_cdc.h"
 #include "dual_capture.h"
 static void dual_init(void);
 static void dual_storage_thread(void *, void *, void *);
@@ -7013,38 +7014,151 @@ static void streamer_start(void)
 static volatile uint8_t g_usb_up;    /* usb_audio_start() completed (gates xfer polling) */
 
 #if SP1_XFER_ENABLE
-/* ISR: drain the CDC RX FIFO into the ring buffer (host -> device bytes). */
-static void cdc_rx_isr(const struct device *dev, void *u)
+#ifdef SP1_DUAL_DECK
+/* Whole replies leave the storage owner immediately. Only the CDC callback
+ * calls uart_fifo_fill, as required by this driver's workqueue context. */
+static struct bonsai_cdc_tx g_cdc_tx_queue;
+static _Atomic bool g_cdc_configured,g_cdc_reset_pending,g_cdc_online;
+static uint32_t g_cdc_session,g_cdc_response_session;
+static bool g_cdc_rx_paused;
+static void cdc_note_cost(uint32_t start,uint32_t bytes)
 {
-	ARG_UNUSED(u);
-	while (uart_irq_update(dev) && uart_irq_rx_ready(dev)) {
-		uint8_t b[64];
-		int n = uart_fifo_read(dev, b, sizeof b);
-		if (n > 0) (void)ring_buf_put(&g_cdc_rx, b, (uint32_t)n);
-	}
+ uint32_t us=(DWT->CYCCNT-start)/64u;
+ unsigned key=irq_lock();
+ g_dual_cdc_us+=us;g_dual_cdc_bytes+=bytes;
+ if(us>g_dual_cdc_max)g_dual_cdc_max=us;
+ irq_unlock(key);
+}
+static void cdc_usb_event(struct usbd_context *const ctx,const struct usbd_msg *const msg)
+{
+ ARG_UNUSED(ctx);
+ if(msg->type==USBD_MSG_CONFIGURATION) {
+  atomic_store(&g_cdc_configured,msg->status!=0);
+  if(msg->status==0)atomic_store(&g_cdc_reset_pending,true);
+ } else if(msg->type==USBD_MSG_RESET||msg->type==USBD_MSG_VBUS_REMOVED||
+           msg->type==USBD_MSG_UDC_ERROR||msg->type==USBD_MSG_STACK_ERROR) {
+  atomic_store(&g_cdc_configured,false);atomic_store(&g_cdc_reset_pending,true);
+ } else if(msg->type==USBD_MSG_CDC_ACM_CONTROL_LINE_STATE&&msg->dev==cdc) {
+  uint32_t dtr=0;
+  (void)uart_line_ctrl_get(cdc,UART_LINE_CTRL_DTR,&dtr);
+  if(!dtr)atomic_store(&g_cdc_reset_pending,true);
+ }
+ /* A disconnect stops callback transmission immediately. The storage owner
+  * resets its queue/parser at its next turn, never concurrently with a copy. */
+ if(atomic_load(&g_cdc_reset_pending)) {
+  atomic_store(&g_cdc_online,false);uart_irq_tx_disable(cdc);
+  /* Keep the first request of a newly configured host in the driver's RX
+   * FIFO until the storage owner has reset the prior session's ring. */
+  g_cdc_rx_paused=true;uart_irq_rx_disable(cdc);
+ }
+}
+static void cdc_rx_resume(void)
+{
+ unsigned key=irq_lock();
+ if(g_cdc_rx_paused&&atomic_load(&g_cdc_online)&&
+    !atomic_load(&g_cdc_reset_pending)&&ring_buf_space_get(&g_cdc_rx)>=64u) {
+  g_cdc_rx_paused=false;uart_irq_rx_enable(cdc);
+ }
+ irq_unlock(key);
+}
+/* Storage-owner call only. Endpoint acceptance is not host receipt. A session
+ * break discards its unsent bytes and resets partial commands; no stale reply
+ * is deliberately replayed on a new connection. Driver-held bytes may require
+ * the host's existing reconnect/line-resynchronization step. */
+static bool cdc_session_sync(void)
+{
+ /* line_ctrl_get is a plain driver-field read. Exclude the USB callback while
+  * taking this lifecycle snapshot and resetting its SPSC queues. */
+ unsigned key=irq_lock();
+ uint32_t dtr=0;(void)uart_line_ctrl_get(cdc,UART_LINE_CTRL_DTR,&dtr);
+ bool online=atomic_load(&g_cdc_configured)&&dtr!=0;
+ bool reset=atomic_exchange(&g_cdc_reset_pending,false);
+ bool before=atomic_load(&g_cdc_online);
+ if(reset||(before&&!online)) {
+  uart_irq_tx_disable(cdc);bonsai_cdc_reset(&g_cdc_tx_queue);
+  ring_buf_reset(&g_cdc_rx);g_cdc_rx_paused=true;uart_irq_rx_disable(cdc);
+  ++g_cdc_session;
+ }
+ if(online&&!before&&!reset)++g_cdc_session;
+ atomic_store(&g_cdc_online,online);
+ irq_unlock(key);
+ cdc_rx_resume();return online;
+}
+#endif
+
+/* The driver invokes this callback in its existing workqueue, not in the
+ * storage thread. Bounded RX/TX chunks keep each callback short. */
+static void cdc_rx_isr(const struct device *dev,void *u)
+{
+ ARG_UNUSED(u);
+#ifdef SP1_DUAL_DECK
+ uint32_t start=DWT->CYCCNT;
+ if(!uart_irq_update(dev))return;
+ if(uart_irq_rx_ready(dev)&&!atomic_load(&g_cdc_reset_pending)) {
+  uint8_t b[64];uint32_t room=ring_buf_space_get(&g_cdc_rx);
+  if(room) {
+   int n=uart_fifo_read(dev,b,MIN(room,sizeof(b)));
+   if(n>0)(void)ring_buf_put(&g_cdc_rx,b,(uint32_t)n);
+  }
+  if(!ring_buf_space_get(&g_cdc_rx)) {
+   g_cdc_rx_paused=true;uart_irq_rx_disable(dev);
+  }
+ }
+ if(uart_irq_tx_ready(dev)) {
+  if(!atomic_load(&g_cdc_online)||atomic_load(&g_cdc_reset_pending))uart_irq_tx_disable(dev);
+  else {
+   const uint8_t *data;uint32_t count=bonsai_cdc_peek(&g_cdc_tx_queue,&data);
+   if(count) {
+    int sent=uart_fifo_fill(dev,data,MIN(count,256u));
+    if(sent>0)(void)bonsai_cdc_consume(&g_cdc_tx_queue,(uint32_t)sent);
+   }
+   /* The only producer is a lower-priority storage thread on this single-core
+    * MCU. It cannot publish between this empty check and disable. Its next
+    * successful publication always reenables TX, including an empty transition. */
+   if(!bonsai_cdc_pending(&g_cdc_tx_queue))uart_irq_tx_disable(dev);
+  }
+ }
+ cdc_note_cost(start,0);
+#else
+ while(uart_irq_update(dev)&&uart_irq_rx_ready(dev)) {
+  uint8_t b[64];int n=uart_fifo_read(dev,b,sizeof(b));
+  if(n>0)(void)ring_buf_put(&g_cdc_rx,b,(uint32_t)n);
+ }
+#endif
 }
 
-/* Blocking byte send (matches how printk drives the console). */
-static void cdc_tx(const uint8_t *p, uint32_t n)
+static bool cdc_tx(const uint8_t *p,uint32_t n)
 {
 #ifdef SP1_DUAL_DECK
  uint32_t start=DWT->CYCCNT;
-#endif
-	for (uint32_t i = 0; i < n; i++) uart_poll_out(cdc, p[i]);
-#ifdef SP1_DUAL_DECK
- uint32_t us=(DWT->CYCCNT-start)/64u;
- g_dual_cdc_us+=us;g_dual_cdc_bytes+=n;
- if(us>g_dual_cdc_max) g_dual_cdc_max=us;
+ /* Admission is checked before commands consume events or modify storage.
+  * No wait, bytewise poll, or dynamic allocation occurs on this path. */
+ if(!atomic_load(&g_cdc_online)||atomic_load(&g_cdc_reset_pending)||
+    g_cdc_response_session!=g_cdc_session||!bonsai_cdc_write(&g_cdc_tx_queue,p,n))return false;
+ uart_irq_tx_enable(cdc);
+ cdc_note_cost(start,n);return true;
+#else
+ for(uint32_t i=0;i<n;i++)uart_poll_out(cdc,p[i]);
+ return true;
 #endif
 }
 
 /* Pull exactly n bytes from the RX ring, up to timeout_ms. */
 static bool cdc_rx(uint8_t *p, uint32_t n, int timeout_ms)
 {
+#ifdef SP1_DUAL_DECK
+ uint32_t session=g_cdc_session;
+#endif
 	int64_t end = k_uptime_get() + timeout_ms;
 	uint32_t got = 0;
 	while (got < n) {
+#ifdef SP1_DUAL_DECK
+        if(!cdc_session_sync()||session!=g_cdc_session)return false;
+#endif
 		got += ring_buf_get(&g_cdc_rx, p + got, n - got);
+#ifdef SP1_DUAL_DECK
+        cdc_rx_resume();
+#endif
 		if (got < n) {
 			if (k_uptime_get() > end) return false;
 			k_msleep(1);
@@ -7059,6 +7173,12 @@ static bool cdc_rx(uint8_t *p, uint32_t n, int timeout_ms)
  * byte so it aborts that block; the host's next ping then resyncs cleanly. */
 static void xfer_resync(uint8_t err_byte)
 {
+#ifdef SP1_DUAL_DECK
+ /* A cancelled old-session sub-read must not drain a new host's request or
+  * append its binary error byte to that host's normal JSON response. */
+ if(g_cdc_response_session!=g_cdc_session||!atomic_load(&g_cdc_online)||
+    atomic_load(&g_cdc_reset_pending))return;
+#endif
 	uint8_t dump;
 	while (ring_buf_get(&g_cdc_rx, &dump, 1) == 1) {
 	}
@@ -11147,7 +11267,11 @@ static void usb_audio_start(void)
 
 	usbd_uac2_set_ops(uac2_dev, &sp1_uac2_ops, NULL);
 
+#ifdef SP1_DUAL_DECK
+	usbd = sample_usbd_init_device(cdc_usb_event);
+#else
 	usbd = sample_usbd_init_device(NULL);
+#endif
 	if (usbd == NULL) {
 		printk("usbd init failed\n");
 		return;

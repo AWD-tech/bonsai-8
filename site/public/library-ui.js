@@ -5,6 +5,7 @@ import {zip} from './vendor/fflate.js';
 import {time,NAMES} from './core.js';
 const $=id=>document.getElementById(id);
 const download=(data,name,type)=>{const url=URL.createObjectURL(new Blob([data],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);};
+const recordingFailure=error=>({1:'Storage could not keep up with recording.',2:'All song slots are occupied.',3:'Song storage is unavailable or incompatible.',4:'The player could not write the recorded audio.',5:'The saved audio or song metadata could not be verified.'})[error]||'The player could not finish this take.';
 export function setupLibrary({connection,audio,canUpload,sourceBusy=()=>false,sourceTitle:getSourceTitle=()=>'',notify,stopMonitor}){
  let songs=[],busy=false,connected=false,deleteSong=null,release=null,flashing=false,recordBusy=false,lastRecordState=0,epoch=0,recordedSlot=null,pendingFirmware=null;
  const metadata=new SongMetadata();
@@ -43,7 +44,15 @@ export function setupLibrary({connection,audio,canUpload,sourceBusy=()=>false,so
  return {
   telemetry(state){
    if(pendingFirmware&&typeof state.firmware==='string'){const expected=`bonsai-8-${pendingFirmware.version}`;if(state.firmware===expected){$('firmware-status').textContent=`The player reports Bonsai 8 ${pendingFirmware.version}. The downloaded file's SHA-256 and updater acknowledgements were checked; flash readback is unavailable.`;pendingFirmware=null;}else if(!pendingFirmware.reported){pendingFirmware.reported=true;const message=`Expected ${expected}, but the player reports ${state.firmware}. The update is not verified.`;$('firmware-status').textContent=message;notify(message);}}
-   if(state.record?.state===4&&[1,2,3].includes(lastRecordState)){recordedSlot=state.record.slot;$('library-status').textContent=`Recording saved in Song ${state.record.slot}.`;setTimeout(()=>refresh(),0);}lastRecordState=state.record?.state||0;recordBusy=[1,2,3].includes(state.record?.state);if(recordBusy)$('library-status').textContent=state.record.state===1?'Recording on the player. Stop recording, then pause both decks to save.':state.playing?.some(Boolean)?'Finishing recording. Pause both decks to save it before managing songs.':'Saving recording… Keep the player powered on.';controls();
+   const recordState=state.record?.state||0;
+   if(recordState===4&&[1,2,3].includes(lastRecordState)){recordedSlot=state.record.slot;$('library-status').textContent=`Recording saved in Song ${state.record.slot}.`;setTimeout(()=>refresh(),0);}
+   recordBusy=[1,2,3].includes(recordState);
+   if(recordState===5&&lastRecordState!==5){
+    recordedSlot=null;
+    const message=`Recording failed. ${recordingFailure(state.record.error)} Check the library before using this take.`;
+    $('library-status').textContent=message;notify(message);
+   }else if(recordBusy)$('library-status').textContent=recordState===1?'Recording on the player. Stop recording, then pause both decks to save.':state.playing?.some(Boolean)?'Finishing recording. Pause both decks to save it before managing songs.':'Saving recording… Keep the player powered on.';
+   lastRecordState=recordState;controls();
   },
   state(isConnected){if(connected!==isConnected){connected=isConnected;epoch++;if(!connected){recordBusy=false;lastRecordState=0;recordedSlot=null;deleteSong=null;metadata.resetSession();songs=[];render();$('library-status').textContent='Connect Bonsai 8 to view its songs.';}}controls();},refresh,controls,get busy(){return busy||flashing;}
  };

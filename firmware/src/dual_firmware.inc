@@ -9,10 +9,9 @@ BUILD_ASSERT(sizeof(struct x3_trk)==16, "uploader track record layout changed");
 #include "dual_mirror.h"
 #include "bonsai_record.h"
 #include "bonsai_library.h"
-#include "bonsai_fx.h"
+#include "bonsai_sync.h"
 static struct dd_engine dd;
 static struct bonsai_record dd_rec;
-static struct bonsai_fx dd_fx;
 /* 0 idle, 1 recording, 2 draining, 3 waiting for pause/save, 4 saved, 5 failed. */
 static _Atomic unsigned dd_record_state,dd_record_error;
 static _Atomic int dd_record_slot;
@@ -39,12 +38,19 @@ static void dual_mirror_capture(uint32_t now)
  dd_ui_push(&dd_ui,now,value,(int32_t)(dd_ui_until-now)>0);
  irq_unlock(key);
 }
-static void dual_mirror_reply(void)
+static void dual_mirror_listen(void)
 {
  uint32_t now=k_uptime_get_32();unsigned key=irq_lock();
- if((int32_t)(dd_ui_until-now)<=0) dd_ui_start(&dd_ui);
- dd_ui_until=now+1000u;uint32_t lost=dd_ui.lost;
- irq_unlock(key);
+ if((int32_t)(dd_ui_until-now)<=0)dd_ui_start(&dd_ui);
+ dd_ui_until=now+1000u;irq_unlock(key);
+}
+static void dual_mirror_reply(void)
+{
+ BUILD_ASSERT(BONSAI_CDC_REPLY_MAX>=16u*104u+96u,"maximum mirror rows must fit one reserved reply");
+ if(bonsai_cdc_room(&g_cdc_tx_queue)<BONSAI_CDC_REPLY_MAX)return;
+ dual_mirror_listen();
+ uint32_t now=k_uptime_get_32();unsigned key=irq_lock();
+ uint32_t lost=dd_ui.lost;irq_unlock(key);
  int used=snprintf(dd_ui_line,sizeof(dd_ui_line),"{\"mirror\":1,\"now\":%u,\"lost\":%u,\"frames\":[",now,lost);
  for(unsigned i=0;i<16;i++) {
   struct dd_ui_frame f;key=irq_lock();bool have=dd_ui_pop(&dd_ui,&f);irq_unlock(key);
@@ -69,6 +75,12 @@ static _Atomic int dd_request[2], dd_slot[2];
  * during that interval chooses the same next song again. */
 static _Atomic int dd_browse_slot[2];
 static _Atomic uint32_t dd_position[2],dd_length[2];
+/* Controls are the sole sync state owner. Storage/USB read atomic copies. */
+static struct bonsai_sync dd_sync;
+static _Atomic uint32_t dd_sync_epoch[2],dd_sync_bpm[2],dd_sync_valid[2];
+static _Atomic uint32_t dd_sync_state[2],dd_sync_result[2],dd_sync_taps[2];
+static uint32_t dd_sync_feedback_until;
+static unsigned dd_sync_feedback_deck;
 static _Atomic uint32_t dd_storage_ok, dd_errors, dd_flush_req;
 static uint32_t dd_capacity, dd_read_errors, dd_bad_blocks;
 static uint8_t dd_selected;
@@ -81,6 +93,104 @@ static struct dd_frame dd_decoded[DD_MAX_DECODE];
 static struct dd_pickup dd_pick[4];
 static _Atomic bool dd_halted;
 
+static void dual_sync_publish(void)
+{
+ k_sched_lock();
+ for(unsigned k=0;k<2;k++) {
+  atomic_store(&dd_sync_bpm[k],dd_sync.deck[k].grid_valid?dd_sync.deck[k].bpm_milli:0);
+  atomic_store(&dd_sync_valid[k],dd_sync.deck[k].grid_valid);
+  atomic_store(&dd_sync_state[k],dd_sync.deck[k].mode);
+  atomic_store(&dd_sync_taps[k],dd_sync.deck[k].tap_count);
+ }
+ k_sched_unlock();
+}
+static void dual_sync_feedback(unsigned deck,enum bonsai_sync_result result)
+{
+ atomic_store(&dd_sync_result[deck],result);
+ dd_sync_feedback_deck=deck;dd_sync_feedback_until=k_uptime_get_32()+1200u;
+ dual_sync_publish();
+}
+static void dual_sync_poll(void)
+{
+ struct bonsai_sync_position p[2];uint32_t lengths[2];
+ /* Snapshot nominal AUDIBLE source clocks, never ring reclaim/grain picks.
+  * Both are paired to one 48k output clock under a short scheduling lock. */
+ k_sched_lock();uint32_t output=(uint32_t)g_sample_clock;
+ for(unsigned k=0;k<2;k++) {
+  lengths[k]=atomic_load(&dd_length[k]);
+  p[k]=(struct bonsai_sync_position){
+   .song_epoch=atomic_load(&dd_sync_epoch[k]),
+   .source_frame=atomic_load(&dd.deck[k].source_clock),
+   .loop_frame=atomic_load(&dd_position[k]),.output_frame=output,
+   .tempo_q16=dd_tempo_actual(&dd.deck[k]),
+   .playing=atomic_load(&dd.deck[k].playing)&&!dd.deck[k].starved&&
+    atomic_load(&dd_storage_ok)&&!g_xfer_mode&&!atomic_load(&dd_record_saving)&&!dd_halted
+  };
+ }
+ k_sched_unlock();
+ for(unsigned k=0;k<2;k++) {
+  /* Unsupported on-card length must clear an older grid, not leave its
+   * same-slot identity available because the strict setter rejected it. */
+  uint32_t admitted=lengths[k]<=BONSAI_SYNC_MAX_FRAMES?lengths[k]:0;
+  (void)bonsai_sync_song(&dd_sync,k,p[k].song_epoch,admitted);
+  if(admitted) (void)bonsai_sync_observe(&dd_sync,k,&p[k]);
+ }
+ if(dd_sync.follower>=0) {
+  unsigned selected=(unsigned)dd_sync.follower;
+  enum bonsai_sync_mode before=dd_sync.deck[selected].mode;
+  struct bonsai_sync_request r=bonsai_sync_step(&dd_sync);
+  if(r.apply&&!dd_set_tempo(&dd.deck[selected],r.tempo_q16)) {
+   r.result=BONSAI_SYNC_RANGE;dd_sync.deck[selected].mode=BONSAI_SYNC_ERROR;
+  }
+  atomic_store(&dd_sync_result[selected],r.result);
+  if(before!=dd_sync.deck[selected].mode&&
+     (dd_sync.deck[selected].mode==BONSAI_SYNC_LOCKED||dd_sync.deck[selected].mode==BONSAI_SYNC_ERROR))
+   dual_sync_feedback(selected,r.result);
+ }
+ dual_sync_publish();
+}
+static void dual_sync_tap(unsigned selected)
+{
+ dual_sync_feedback(selected,bonsai_sync_tap(&dd_sync,selected));
+}
+static void dual_sync_follow(unsigned selected)
+{
+ enum bonsai_sync_result result=bonsai_sync_follow(&dd_sync,selected);
+ dual_sync_feedback(selected,result);dual_sync_poll();
+}
+static void dual_sync_nudge(unsigned selected,int dir)
+{
+ dual_sync_feedback(selected,bonsai_sync_nudge(&dd_sync,selected,dir));
+ dual_sync_poll();
+}
+static void dual_sync_manual_tempo(unsigned selected,int dir)
+{
+ bonsai_sync_manual(&dd_sync,selected);
+ int tempo=(int)dd_tempo_actual(&dd.deck[selected])+dir*655;
+ (void)dd_set_tempo(&dd.deck[selected],(uint32_t)CLAMP(tempo,32768,81920));
+ atomic_store(&dd_sync_result[selected],BONSAI_SYNC_MANUAL);dual_sync_publish();
+}
+static bool dual_sync_leds(uint32_t now)
+{
+ if(dd_sync_feedback_deck!=dd_selected||(int32_t)(dd_sync_feedback_until-now)<=0)return false;
+ unsigned result=atomic_load(&dd_sync_result[dd_selected]);
+ if(result==BONSAI_SYNC_MANUAL)return false; /* explicit by-ear tempo is not an error */
+ enum bonsai_sync_mode mode=dd_sync.deck[dd_selected].mode;
+ all_off();status_level(255);
+ if(result==BONSAI_SYNC_PENDING) {
+  unsigned count=dd_sync.deck[dd_selected].tap_count;
+  for(unsigned i=0;i<count&&i<4;i++)led_on((int)i);
+  if(count<4&&((now/150u)&1u))led_on((int)count);
+ } else if(result!=BONSAI_SYNC_OK) {
+  if((now/150u)&1u){led_on(0);led_on(3);}else{led_on(1);led_on(2);}
+ } else if(mode==BONSAI_SYNC_LOCKED) {
+  for(int i=0;i<4;i++)led_on(i);
+ } else if(mode==BONSAI_SYNC_ALIGNING) {
+  if((now/200u)&1u){led_on(1);led_on(2);}
+ } else led_on(0); /* fourth tap accepted: taught grid, no lock claim */
+ return true;
+}
+
 static void dual_request_song(unsigned deck,int slot)
 {
  atomic_store(&dd_browse_slot[deck],slot);
@@ -89,7 +199,14 @@ static void dual_request_song(unsigned deck,int slot)
 
 static void dual_init(void)
 {
- dd_init(&dd);bonsai_fx_init(&dd_fx);dd.fx=&dd_fx;bonsai_record_init(&dd_rec);atomic_init(&dd_record_slot,-1);
+ dd_init(&dd);bonsai_record_init(&dd_rec);atomic_init(&dd_record_slot,-1);
+ (void)bonsai_sync_init(&dd_sync,32768,81920);
+ for(unsigned k=0;k<2;k++) {
+  atomic_init(&dd_sync_epoch[k],1);(void)bonsai_sync_song(&dd_sync,k,1,0);
+  atomic_init(&dd_sync_bpm[k],0);atomic_init(&dd_sync_valid[k],0);
+  atomic_init(&dd_sync_state[k],BONSAI_SYNC_MODE_MANUAL);
+  atomic_init(&dd_sync_result[k],BONSAI_SYNC_MANUAL);atomic_init(&dd_sync_taps[k],0);
+ }
  for(int k=0;k<2;k++) {atomic_init(&dd_request[k],-1);atomic_init(&dd_slot[k],-1);atomic_init(&dd_browse_slot[k],-1);}
  atomic_init(&dd_storage_ok,0);atomic_init(&dd_errors,0);atomic_init(&dd_flush_req,0);
  for(int s=0;s<4;s++) dd_pick[s]=(struct dd_pickup){-1,true};
@@ -100,11 +217,11 @@ static void dual_audio_block(int16_t *out)
  (void)ring_buf_get(&usb_audio_ring,NULL,BLK_BYTES);
  if(g_xfer_mode || dd_halted || atomic_load(&dd_record_saving)) memset(out,0,BLK_BYTES);
  else {
-  uint32_t before[2]={atomic_load(&dd.deck[0].read),atomic_load(&dd.deck[1].read)};
+  uint32_t before[2]={atomic_load(&dd.deck[0].source_clock),atomic_load(&dd.deck[1].source_clock)};
   dd_render(&dd,out,BLK_FRAMES);
   for(unsigned k=0;k<2;k++){
    uint32_t length=atomic_load(&dd_length[k]);
-   if(length)atomic_store(&dd_position[k],(atomic_load(&dd_position[k])+atomic_load(&dd.deck[k].read)-before[k])%length);
+   if(length)atomic_store(&dd_position[k],(atomic_load(&dd_position[k])+atomic_load(&dd.deck[k].source_clock)-before[k])%length);
   }
  }
  /* The audio producer never waits for storage. On overflow the take is
@@ -140,7 +257,9 @@ static void dual_load(unsigned k,unsigned slot)
 {
  struct dd_source next[4]={0}; uint8_t mask=0;
  if(slot>=NUM_SLOTS) return;
- atomic_store(&dd.deck[k].playing,0);
+ k_sched_lock();atomic_store(&dd.deck[k].playing,0);atomic_store(&dd_length[k],0);
+ uint32_t epoch=atomic_load(&dd_sync_epoch[k])+1u;
+ atomic_store(&dd_sync_epoch[k],epoch?epoch:1u);k_sched_unlock();
  k_msleep(6); /* let the audio thread fade the previous deck before replacing it */
  for(unsigned s=0;s<4 && atomic_load(&dd_storage_ok);s++) {
   const struct slot_state *m=&g_meta.slot[slot];
@@ -171,7 +290,7 @@ static void dual_load(unsigned k,unsigned slot)
   * This critical section has no IO, no sleeps, and does not mask hardware IRQs. */
  k_sched_lock();
  dd_reset_deck(&dd.deck[k],mask);
- for(unsigned s=0;s<4;s++) bonsai_fx_reset_voice(&dd_fx,k*4+s);
+ dd_set_stretch(&dd.deck[k],true);
  memcpy(dd_src[k],next,sizeof(next));
  atomic_store(&dd_slot[k],(int)slot);
  atomic_store(&dd_position[k],0);uint32_t length=0;for(unsigned s=0;s<4;s++)length=MAX(length,next[s].length);atomic_store(&dd_length[k],length);
@@ -214,32 +333,36 @@ static bool dual_fill(unsigned k,unsigned s)
 }
 static void dual_status(void)
 {
- /* Called only in response to a host request, on the storage thread. */
- char line[1472];uint32_t fx_clips=0;
+ /* The storage owner formats one reply at a time; cdc_tx copies it before
+  * this shared buffer is reused. Leave stack space for playback planning. */
+ char *line=dd_ui_line;
  unsigned key=irq_lock();
  uint32_t audio_total=g_dual_audio_us_total,audio_blocks=g_dual_audio_blocks;
  uint32_t push_us=dd_capture_push_us,push_calls=dd_capture_push_calls,push_max=dd_capture_push_max;
  uint32_t sof_us=dd_capture_sof_us,sof_calls=dd_capture_sof_calls,sof_max=dd_capture_sof_max;
  irq_unlock(key);
- for(unsigned i=0;i<8;i++) fx_clips+=dd_fx.voice[i].clipped;
- int n=snprintf(line,sizeof(line),
-  "{\"firmware\":\"bonsai-8-0.4.4\",\"mirror\":1,\"effects\":[\"filter\"],\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"audio_us_total\":%u,\"audio_blocks\":%u,\"capture_push_us\":%u,\"capture_push_calls\":%u,\"capture_push_max\":%u,\"capture_sof_us\":%u,\"capture_sof_calls\":%u,\"capture_sof_max\":%u,\"cdc_us\":%u,\"cdc_max\":%u,\"cdc_bytes\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
+ int n=snprintf(line,sizeof(dd_ui_line),
+  "{\"firmware\":\"bonsai-8-0.4.5\",\"mirror\":1,\"effects\":[],\"pitch_preserving\":1,\"grid_bpm\":[%u,%u],\"grid_valid\":[%u,%u],\"sync\":[%u,%u],\"sync_error\":[%u,%u],\"tap_count\":[%u,%u],\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"audio_us_total\":%u,\"audio_blocks\":%u,\"capture_push_us\":%u,\"capture_push_calls\":%u,\"capture_push_max\":%u,\"capture_sof_us\":%u,\"capture_sof_calls\":%u,\"capture_sof_max\":%u,\"cdc_us\":%u,\"cdc_max\":%u,\"cdc_bytes\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
+  atomic_load(&dd_sync_bpm[0]),atomic_load(&dd_sync_bpm[1]),
+  atomic_load(&dd_sync_valid[0]),atomic_load(&dd_sync_valid[1]),
+  atomic_load(&dd_sync_state[0]),atomic_load(&dd_sync_state[1]),
+  atomic_load(&dd_sync_result[0]),atomic_load(&dd_sync_result[1]),
+  atomic_load(&dd_sync_taps[0]),atomic_load(&dd_sync_taps[1]),
   dd_usb_capture_on,dd_usb_packets,dd_usb_audio.underruns,dd_usb_audio.overflows,dd_usb_send_errors,
   atomic_load(&dd_position[0]),atomic_load(&dd_position[1]),atomic_load(&dd_length[0]),atomic_load(&dd_length[1]),
   atomic_load(&dd_record_state),atomic_load(&dd_record_slot)+1,atomic_load(&dd_rec.source_frames)/2,atomic_load(&dd_record_error),
-  atomic_load(&dd_fx.config[0]),atomic_load(&dd_fx.config[1]),atomic_load(&dd_fx.config[2]),atomic_load(&dd_fx.config[3]),
-  atomic_load(&dd_fx.config[4]),atomic_load(&dd_fx.config[5]),atomic_load(&dd_fx.config[6]),atomic_load(&dd_fx.config[7]),
-  fx_clips,atomic_load(&dd_storage_ok),dd_selected,atomic_load(&dd_slot[0])+1,atomic_load(&dd_slot[1])+1,
+  0u,0u,0u,0u,0u,0u,0u,0u,0u,atomic_load(&dd_storage_ok),dd_selected,atomic_load(&dd_slot[0])+1,atomic_load(&dd_slot[1])+1,
   atomic_load(&dd.deck[0].playing),atomic_load(&dd.deck[1].playing),
   dd.deck[0].underruns,dd.deck[1].underruns,dd_read_errors,dd_bad_blocks,atomic_load(&dd_errors),dd.clips,
   g_audio_us_max,audio_total,audio_blocks,push_us,push_calls,push_max,sof_us,sof_calls,sof_max,g_dual_cdc_us,g_dual_cdc_max,g_dual_cdc_bytes,g_i2s_wfail_cnt,emmc_crc_rd_errs,g_m71_as,g_m71_wu,g_m71_rt,g_m71_fb,g_resetreas,g_last_fault_reason,atomic_load(&dd.master),
-  atomic_load(&dd.deck[0].speed),atomic_load(&dd.deck[1].speed),
+  dd_tempo_actual(&dd.deck[0]),dd_tempo_actual(&dd.deck[1]),
   atomic_load(&dd.deck[0].mute_mask),atomic_load(&dd.deck[1].mute_mask),
   atomic_load(&dd.deck[0].voice[0].gain),atomic_load(&dd.deck[0].voice[1].gain),
   atomic_load(&dd.deck[0].voice[2].gain),atomic_load(&dd.deck[0].voice[3].gain),
   atomic_load(&dd.deck[1].voice[0].gain),atomic_load(&dd.deck[1].voice[1].gain),
   atomic_load(&dd.deck[1].voice[2].gain),atomic_load(&dd.deck[1].voice[3].gain));
- if(n>0) cdc_tx((const uint8_t *)line,MIN((size_t)n,sizeof(line)-1));
+ if(n>0&&(size_t)n<sizeof(dd_ui_line))cdc_tx((const uint8_t *)line,(size_t)n);
+ else {static const char error[]="{\"error\":\"Status response overflow\"}\n";cdc_tx((const uint8_t *)error,sizeof(error)-1);}
 }
 /* Listing never enters transfer mode or interrupts either transport. */
 static void dual_library(void)
@@ -426,43 +549,58 @@ static void dual_profile(void)
 #endif
 static void dual_transfer(void)
 {
- static uint8_t xm,sm,mm,lm;static int64_t last;
- static char command[40];static size_t used;static bool overflow;
-#ifdef CONFIG_THREAD_RUNTIME_STATS
- static uint8_t pm;static const char profile[]="DDPROF?\n";
-#endif
- static const char enter[]="SP1XFER!",stat[]="DDSTAT?\n",mirror[]="DDMIR?\n",library[]="DDLIB?\n";
+ static int64_t last;
+ static struct bonsai_cdc_parser parser;
+ static uint32_t session;
  uint8_t c;
- if(!g_xfer_mode) {
-  while(ring_buf_get(&g_cdc_rx,&c,1)==1) {
-#ifdef CONFIG_THREAD_RUNTIME_STATS
-   pm=c==profile[pm]?pm+1:c==profile[0]?1:0;
-   if(pm==8) {pm=0;dual_profile();}
-#endif
-   if(c=='\n') {
-    command[used]=0;
-    if(!overflow&&!strncmp(command,"DDLOAD ",7)) dual_host_load(command);
-    used=0;overflow=false;
-   } else if(c!='\r') {
-    if(used<sizeof(command)-1) command[used++]=(char)c;else overflow=true;
-   }
-   lm=c==library[lm]?lm+1:c==library[0]?1:0;
-   if(lm==7) {lm=0;dual_library();}
-   xm=c==enter[xm]?xm+1:c==enter[0]?1:0;
-   sm=c==stat[sm]?sm+1:c==stat[0]?1:0;
-   mm=c==mirror[mm]?mm+1:c==mirror[0]?1:0;
-   if(sm==8) {sm=0;dual_status();}
-   if(mm==7) {mm=0;dual_mirror_reply();}
-   if(xm==8) {
-    xm=sm=mm=lm=0;used=0;overflow=false;
-    if(dual_record_busy()) continue;
-    g_xfer_mode=1;
-    atomic_store(&dd.deck[0].playing,0);atomic_store(&dd.deck[1].playing,0);
-    last=k_uptime_get();break;
-   }
-  }
-  return;
+ bool online=cdc_session_sync();
+ if(session!=g_cdc_session) {
+  session=g_cdc_session;bonsai_cdc_parser_reset(&parser);
+  /* An interrupted transfer is already paused. Flush acknowledged writes and
+   * reload the existing index; never initialize or publish a new song here. */
+  if(g_xfer_mode){(void)dual_commit();g_xfer_mode=0;}
+  dd_ui_until=0;
  }
+ if(!online)return;
+ g_cdc_response_session=g_cdc_session;
+ if(!g_xfer_mode) {
+  /* Leave at most one complete command pending under backpressure. The RX
+   * callback stops accepting into a full ring rather than discarding bytes. */
+  for(unsigned budget=0;parser.pending==BONSAI_CDC_IDLE&&budget<BONSAI_CDC_RX_BUDGET;budget++) {
+   if(ring_buf_get(&g_cdc_rx,&c,1)!=1)break;
+   (void)bonsai_cdc_parse(&parser,c);
+  }
+  cdc_rx_resume();
+  /* Subscribe when requested, even while TX is full. Waiting must not expire
+   * the edge stream or pop its press/release/LED transitions prematurely. */
+  if(parser.pending==BONSAI_CDC_MIRROR)dual_mirror_listen();
+  if(!bonsai_cdc_admissible(&parser,&g_cdc_tx_queue))return;
+  /* All normal responses fit REPLY_MAX. This sole producer reserves capacity
+   * before popping mirror edges, formatting status, or acting on DDLOAD. */
+  switch(parser.pending) {
+   case BONSAI_CDC_STATUS:dual_status();break;
+   case BONSAI_CDC_MIRROR:dual_mirror_reply();break;
+   case BONSAI_CDC_LIBRARY:dual_library();break;
+   case BONSAI_CDC_LOAD:dual_host_load(parser.line);break;
+#ifdef CONFIG_THREAD_RUNTIME_STATS
+   case BONSAI_CDC_PROFILE:dual_profile();break;
+#endif
+   case BONSAI_CDC_ENTER:
+    if(!dual_record_busy()) {
+     /* Every earlier reply is in the driver's ordered FIFO before binary
+      * mode begins. Binary replies use the same queue/FIFO, never poll_out. */
+     g_xfer_mode=1;
+     atomic_store(&dd.deck[0].playing,0);atomic_store(&dd.deck[1].playing,0);
+     last=k_uptime_get();
+    }
+    break;
+   default:break;
+  }
+  bonsai_cdc_parser_reset(&parser);return;
+ }
+ /* Reserve a complete largest response BEFORE reading a binary command.
+  * Header/payload reads retain the existing transfer timeout/verification. */
+ if(bonsai_cdc_room(&g_cdc_tx_queue)<BONSAI_CDC_REPLY_MAX)return;
  if(ring_buf_get(&g_cdc_rx,&c,1)!=1) {
   if(k_uptime_get()-last>15000) {dual_commit();g_xfer_mode=0;}
   return;
@@ -527,8 +665,10 @@ static void dual_storage_thread(void *a,void *b,void *c)
    dd_halted=true;atomic_store(&dd_flush_req,0);
   }
   if(dd_halted) {k_msleep(10);continue;}
-  if(g_usb_up) dual_transfer();
-  if(g_xfer_mode) {k_msleep(1);continue;}
+  if(g_xfer_mode) {
+   if(g_usb_up)dual_transfer();
+   k_msleep(1);continue;
+  }
   /* One record sector per iteration; playback gets a refill opportunity after
    * every write. The bounded producer fails rather than silently losing time. */
   dual_record_service();
@@ -544,7 +684,12 @@ static void dual_storage_thread(void *a,void *b,void *c)
    uint32_t r=dd_room(&dd.deck[n/4],n%4);
    if(r>room && r>=DD_READ_BLOCKS*dd_src[n/4][n%4].spb) {room=r;best=n;}
   }
-  if(best<8&&dual_fill(best/4,best%4)) k_yield();else k_msleep(1);
+  bool filled=best<8&&dual_fill(best/4,best%4);
+  /* Source refill has priority over bounded tempo planning and host replies.
+   * Correlation belongs here, never in the real-time audio callback. */
+  bool planned=dd_stretch_service(&dd,1024u)>0;
+  if(g_usb_up)dual_transfer();
+  if(filled||planned)k_yield();else k_msleep(1);
  }
 }
 static void dual_stop_and_flush(void)
@@ -587,14 +732,15 @@ static int dual_track_key(int raw)
 static void dual_controls(void)
 {
  int tc=TRK_NONE,tcan=TRK_NONE,tcount=0,vc=VOL_NONE,vcan=VOL_NONE,vcount=0;
- bool spent=false,fn_used=false,fn_before=false,solo=false,track_blocked=false,modified_wheel=false;uint32_t solo_saved=0;
+ bool spent=false,fn_used=false,fn_before=false,solo=false,track_blocked=false,modified_wheel=false,stem_modified=false;uint32_t solo_saved=0;
+ int modified_wheel_action=-1;unsigned wheel_deck=0;
  int pressed_deck=0,pressed_track=TRK_NONE;int64_t track_time=0,fn_time=0,repeat=0,hp_time=0;
  int smooth[4]={-1,-1,-1,-1};unsigned fi=0;uint32_t led_tick=0;
  int64_t record_chord=0;bool record_latched=false,record_blocked=false;
- int effect_stem=-1;struct dd_pickup effect_pick={-1,true};
  uint16_t ui_track=0,ui_candidate=0;unsigned ui_count=0;
  while(1) {
   feed_wdt();dual_recovery_check();int64_t now=k_uptime_get();
+  dual_sync_poll();
   int ladder=ladder_read(&adc_ladder[LAD_TRACKS]);
   int traw=dual_track_key(ladder);
   uint16_t mask=dd_ui_tracks(ladder);
@@ -619,21 +765,19 @@ static void dual_controls(void)
     atomic_store(&dd_record_toggle,true);record_latched=true;
    }
   } else record_chord=0;
-  if(vc==VOL_NONE) {record_latched=false;record_blocked=false;modified_wheel=false;}
-  int previous_effect=effect_stem;
-  effect_stem=(fn&&tc>=TRK_1&&tc<=TRK_4)?tc:-1;
-  if(effect_stem!=previous_effect) {
-   effect_pick=(struct dd_pickup){-1,true};
-   if(previous_effect>=0) dd_pick[previous_effect]=(struct dd_pickup){-1,true};
-  }
-  if(effect_stem>=0) {fn_used=true;spent=true;}
+  /* One recording gesture requires a complete release. A brief volume ADC
+   * gap while FUNCTION stays held must not re-arm and stop the same take. */
+  if(!fn&&vc==VOL_NONE) {record_latched=false;record_blocked=false;}
+  if(vc==VOL_NONE) {modified_wheel=false;modified_wheel_action=-1;}
   if(tc==-2) {spent=true;track_blocked=true;fn_used|=fn;}
   if(tc==TRK_NONE) track_blocked=false;
-  if(fn&&tc>=0) fn_used=true;
+  if(fn&&tc>=0) {fn_used=true;if(pressed_track>=0){stem_modified=true;spent=true;}}
   if(!track_blocked&&pressed_track==TRK_NONE&&tc>=0) {
-   pressed_track=tc;pressed_deck=dd_selected;track_time=now;spent=false;
+   pressed_track=tc;pressed_deck=dd_selected;track_time=now;spent=false;stem_modified=false;
    if(fn) {
-    fn_used=spent=true;
+    fn_used=spent=stem_modified=true;
+    if(tc==TRK_1)dual_sync_tap((unsigned)pressed_deck);
+    else if(tc==TRK_2)dual_sync_follow((unsigned)pressed_deck);
     if(tc==TRK_PLAY&&!atomic_load(&dd_record_saving)) {
      bool start=!(atomic_load(&dd.deck[0].playing)&&atomic_load(&dd.deck[1].playing));
      atomic_store(&dd.deck[0].playing,start);atomic_store(&dd.deck[1].playing,start);
@@ -652,12 +796,12 @@ static void dual_controls(void)
     if(pressed_track==TRK_PLAY) atomic_store(&d->playing,!atomic_load(&d->playing));
     else atomic_fetch_xor(&d->mute_mask,1u<<pressed_track);
    }
-   pressed_track=TRK_NONE;spent=false;
+   pressed_track=TRK_NONE;spent=false;stem_modified=false;
   }
   /* A wheel gesture begun with FUNCTION stays a modified gesture until the
    * wheel is released. Releasing FUNCTION first must not change deck pitch. */
   bool wheel=vc==VOL_TEMPO_UP||vc==VOL_TEMPO_DOWN;
-  if(!record_blocked&&!(wheel&&modified_wheel&&!fn)&&vc!=VOL_NONE&&(vc!=oldv||now>=repeat)) {
+  if(!record_blocked&&!(wheel&&(modified_wheel||stem_modified)&&!fn)&&vc!=VOL_NONE&&(vc!=oldv||now>=repeat)) {
    repeat=now+(vc!=oldv?500:110);
    int dir=(vc==VOL_UP||vc==VOL_TEMPO_UP)?1:-1;
    if(vc==VOL_UP||vc==VOL_DOWN) {
@@ -665,13 +809,18 @@ static void dual_controls(void)
     atomic_store(&dd.master,CLAMP(volume,0,256));fn_used|=fn;
    } else if(vc==VOL_TEMPO_UP||vc==VOL_TEMPO_DOWN) {
     if(fn) {
-     modified_wheel=true;
-     /* The sole effect is Filter. A wheel press while editing must not
-      * browse songs or alter deck pitch, including on modifier release. */
-     if(effect_stem<0) dual_choose_song(dir);
+     if(!modified_wheel) {
+      /* Freeze a wheel gesture's role until its complete release. Releasing
+       * Track 3 first cannot turn a phase nudge into library browsing. */
+      modified_wheel_action=tc==TRK_3?1:(tc>=TRK_1&&tc<=TRK_4?2:0);
+      wheel_deck=(unsigned)pressed_deck;modified_wheel=true;
+     }
+     if(modified_wheel_action==1&&tc==TRK_3&&pressed_track==TRK_3)
+      dual_sync_nudge(wheel_deck,dir);
+     else if(modified_wheel_action==0&&(tc<TRK_1||tc>TRK_4))dual_choose_song(dir);
      repeat=now+500;fn_used=true;
     }
-    else {int speed=(int)atomic_load(&dd.deck[dd_selected].speed)+dir*655;atomic_store(&dd.deck[dd_selected].speed,CLAMP(speed,32768,81920));}
+    else dual_sync_manual_tempo(dd_selected,dir);
    }
   }
   if(fn&&!fn_used&&now-fn_time>=1500) power_off();
@@ -686,11 +835,7 @@ static void dual_controls(void)
    unsigned value=MIN((unsigned)smooth[fi]*256/3700,256u);
    dd_physical[fi]=(uint16_t)MIN((unsigned)raw*256/3700,256u);
    struct dd_voice *v=&dd.deck[dd_selected].voice[fi];
-   if(effect_stem==(int)fi) {
-    unsigned voice=dd_selected*4+fi,config=atomic_load(&dd_fx.config[voice]);
-    if(dd_pickup_move(&effect_pick,config&0xffffu,value))
-     bonsai_fx_set(&dd_fx,voice,BONSAI_FX_FILTER,value);
-   } else if(dd_pickup_move(&dd_pick[fi],atomic_load(&v->gain),value)) atomic_store(&v->gain,value);
+   if(dd_pickup_move(&dd_pick[fi],atomic_load(&v->gain),value)) atomic_store(&v->gain,value);
   }
   fi=(fi+1)%4;
   /* Stock-style speaker muting when headphones are inserted. */
@@ -709,10 +854,8 @@ static void dual_controls(void)
     if(atomic_load(&dd.deck[0].playing)) led_on(1);
     if(atomic_load(&dd.deck[1].playing)) led_on(2);
    }
-   if(effect_stem>=0) {
-    all_off();led_on(0);
-   }
    unsigned recording=atomic_load(&dd_record_state);
+   if(!recording)(void)dual_sync_leds((uint32_t)now);
    if(recording>=1&&recording<=3) {
     if((now/(recording==1?500:150))&1) {led_on(0);led_on(1);led_on(2);led_on(3);}else all_off();
    } else if(recording==5&&((now/150)&1)) {led_on(0);led_on(3);}

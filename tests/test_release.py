@@ -25,6 +25,25 @@ def report():
                 mirror_replies=0)
 
 class ReleaseTests(unittest.TestCase):
+    def test_no_effects_release_requires_zero_effect_state_and_usb(self):
+        self.assertEqual(release.playback_cases({'version':'0.4.5','effects':[]}),
+                         ('dry','usb_mirror'))
+        for effects in [None,['filter']]:
+            with self.assertRaises(ValueError):
+                release.playback_cases({'version':'0.4.5','effects':effects})
+        r=report()
+        for item in r['samples']:
+            item['status'].update(firmware='bonsai-8-0.4.5',effects=[])
+        release.validate_playback(r,'0.4.5','dry')
+        for case in ['filter','echo','reverb','usb_mirror']:
+            with self.assertRaises(ValueError): release.validate_playback(r,'0.4.5',case)
+        for item in r['samples']: item['status']['capture_active']=1
+        r['samples'][-1]['status']['capture_packets']=20000
+        r['mirror_replies']=500
+        release.validate_playback(r,'0.4.5','usb_mirror')
+        for item in r['samples']: item['status']['fx'][0]=1<<16
+        with self.assertRaises(ValueError): release.validate_playback(r,'0.4.5','usb_mirror')
+
     def test_filter_only_release_requires_its_declared_capability(self):
         self.assertEqual(release.playback_cases({'version':'0.4.3'}), release.CASES)
         self.assertEqual(release.playback_cases({'version':'0.4.4','effects':['filter']}),
