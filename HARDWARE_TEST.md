@@ -138,3 +138,13 @@ At the user's request, the 104,848-byte candidate was flashed on October 2 at 19
 After the user powered on, read-only status at 19:39 EDT confirmed `firmware=bonsai-8-0.4.0`, `storage=1`, both decks paused, and zero read, block, CRC, I2S and FX clipping errors. Normal-runtime `DDLIB?` listed slots 1–4, each with four stems, at 7,583,452; 7,658,128; 7,592,368; and 11,820,304 source frames at 48 kHz. This confirms the library listing, not a fresh audio-sector checksum or audible playback test. The host serial handle was closed after inspection.
 
 Local evidence: `hardware-tests/flash-20261002-193734.jsonl` and `hardware-tests/bonsai-0.4.0-postflash.json`. The earlier unflashed status above is historical. Full eight-stem performance, USB/mirroring under load, effects, recording and browser flashing remain unverified; do not promote the candidate to a hardware-verified release based on this flash and startup check.
+
+## 0.4.0 playback follow-up — October 2, 2026
+
+The user reports stuttering with all eight stems. Initial dry samples recorded zero new underruns, but changes in stored gains made both runs inconclusive. One thirty-second sample began with all eight gains at 256 and ended with four at zero; it does not establish sustained eight-stem performance.
+
+After the website released its serial connection, a stable 10.044-second measurement reproduced the failure: **124 new Deck A underruns and 133 new Deck B underruns**. Read, bad-block, CRC, I2S and USB capture error deltas were zero. USB capture was inactive throughout, with no packets sent. The fault therefore persists without browser monitoring.
+
+The measured configuration was slots 3 and 2, both playing at 1x, no mutes, master 192, A gains `[256,256,256,256]`, and B gains `[0,0,0,0]`. Filters on A stems 1 and 2 had amount 2; the other six effects were bypassed. These are four audible stems with two streaming decks, despite the intended eight-stem setup. The session maximum audio callback was 5,718 microseconds, above the 5,333-microsecond block deadline; this maximum is cumulative and does not by itself isolate the cause.
+
+The next controlled comparison is the same settings with those two filters bypassed. Effects, storage scheduling and song-specific behavior remain hypotheses; no new fix or flash is claimed. Evidence: `hardware-tests/bonsai-0.4.0-stutter-site-disconnected.json`. The read-only test released serial after completion. Full-load dry playback, USB capture/mirroring, effects and recording remain open hardware gates.

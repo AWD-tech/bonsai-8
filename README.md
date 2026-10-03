@@ -8,7 +8,7 @@ Private development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). 
 
 ## Release status
 
-The current candidate is **`bonsai-8-0.4.0`**. It was flashed on October 2 and its runtime version confirmed after power-on. The player reports all four existing song slots with four stems each. Flashing and startup are confirmed; full eight-stem playback, USB audio under load, effects and recording still need hardware verification. Changing source files or the website does not update a connected player.
+The current candidate is **`bonsai-8-0.4.0`**. It was flashed on October 2 and its runtime version confirmed after power-on. The player reports all four existing song slots with four stems each. Playback testing reproduced dropouts with two streaming decks and two active filters, even with the website disconnected. Full eight-stem playback, USB audio under load, effects and recording are not yet hardware-verified. Changing source files or the website does not update a connected player.
 
 The four-song library was uploaded and independently sampled after the earlier 0.3.1 update. USB audio and physical telemetry work on the test Mac. Later streaming-reader changes gave a smooth four-audible-stem test, but full eight-stem playback and USB monitoring still produced underruns. The candidate includes another mixer optimisation; host tests and timing comparisons do not establish hardware performance. See `HARDWARE_TEST.md` for measured results and remaining limits.
 
@@ -75,7 +75,7 @@ Each song's stems start together; shorter stems receive silence to match the lon
 ## Hardware test
 
 1. Back up the current firmware/song library using the tools for the firmware currently on your unit. Keep a known-good recovery binary.
-2. Build/package the candidate and verify its manifest/checksum. Use the matching updater and **`dist/bonsai-8-0.4.0.bin`**, never the root upstream reference binary. The application-only site flasher is a candidate feature awaiting hardware verification; the known recovery route is the SP-1 utility at [Solderless](https://solderless.engineering). Disconnect other serial owners, hold Track 1 + Track 4 for three seconds and keep USB connected. The installed test firmware is still 0.3.5 unless a subsequent flash and runtime check confirm otherwise.
+2. Build/package the candidate and verify its manifest/checksum. Use the matching updater and **`dist/bonsai-8-0.4.0.bin`**, never the root upstream reference binary. The application-only site flasher is a candidate feature awaiting hardware verification; the known recovery route is the SP-1 utility at [Solderless](https://solderless.engineering). Disconnect other serial owners, hold Track 1 + Track 4 for three seconds and keep USB connected. The installed test firmware was confirmed as 0.4.0 on October 2.
 3. Replug, then hold FUNCTION 1.5 seconds. First test power-off and Track 1 + Track 4 recovery before initializing or uploading audio.
 4. Check `status`: storage, reset reason, fault marker, CRC/read errors and the audio deadline are reported. A normal no-fault marker is `4294967295`.
 5. Load two different songs with four recognizable stems each. Test each deck separately at low volume, then both at 1×. Switch A/B and confirm pickup, mute/solo and pause affect only the chosen deck. Test headphones and speaker auto-mute.
