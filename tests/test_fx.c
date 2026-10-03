@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static struct bonsai_fx fx;
 static const struct dd_frame silence = {0,0};
@@ -176,12 +177,44 @@ static void test_song_reset_preserves_settings_only(void)
  }
  assert(fx.voice[0].type==BONSAI_FX_ECHO&&fx.voice[0].mix==200);
 }
+static void test_buffer_matches_sample_processing(void)
+{
+ static const unsigned counts[]={0,1,7,12,63,64,65,255,256,257};
+ static struct bonsai_fx reference;
+ struct dd_frame actual[257], expected[257];
+ uint32_t random=0x51b08u;
+ bonsai_fx_init(&fx);bonsai_fx_init(&reference);
+ for(unsigned block=0;block<4000;block++) {
+  unsigned n=counts[block%10];
+  if(block%29==0) {
+   unsigned type=(block/29)%4, amount=(block/116)%3==0?1:256;
+   assert(bonsai_fx_set(&fx,0,(enum bonsai_fx_type)type,amount));
+   assert(bonsai_fx_set(&reference,0,(enum bonsai_fx_type)type,amount));
+  }
+  if(block%113==0) {
+   assert(bonsai_fx_set(&fx,0,BONSAI_FX_ECHO,0));
+   assert(bonsai_fx_set(&reference,0,BONSAI_FX_ECHO,0));
+  }
+  bonsai_fx_begin_block(&fx);bonsai_fx_begin_block(&reference);
+  for(unsigned i=0;i<n;i++) {
+   random^=random<<13;random^=random>>17;random^=random<<5;
+   actual[i]=(struct dd_frame){(int16_t)random,(int16_t)(random>>16)};
+   if(block%7==0) actual[i]=silence;
+   if(block%7==1) actual[i]=(struct dd_frame){INT16_MIN,INT16_MAX};
+   expected[i]=bonsai_fx_process(&reference.voice[0],actual[i]);
+  }
+  bonsai_fx_process_buffer(&fx.voice[0],actual,n);
+  assert(!memcmp(actual,expected,n*sizeof(*actual)));
+  assert(!memcmp(&fx.voice[0],&reference.voice[0],sizeof(fx.voice[0])));
+ }
+}
 int main(void)
 {
  test_bypass_and_bounds(); test_filter_response_and_stereo();
  test_echo_impulse_timing_and_decay(); test_reverb_tail_and_isolation();
  test_incremental_reset_and_switch(); test_full_scale_stability();
  test_song_reset_preserves_settings_only();
+ test_buffer_matches_sample_processing();
  printf("PASS: stereo bypass/filter, 250 ms echo, reverb decay, isolation, "
         "incremental reset and bounded feedback (%zu bytes)\n", sizeof(fx));
 }

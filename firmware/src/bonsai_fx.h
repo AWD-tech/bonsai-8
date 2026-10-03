@@ -55,4 +55,9 @@ void bonsai_fx_begin_block(struct bonsai_fx *fx);
  */
 struct dd_frame bonsai_fx_process(struct bonsai_fx_voice *v,
                                   struct dd_frame input);
+/* Same samples and state as repeated process calls, in place. Settings stay
+ * fixed until the next begin_block. Steady effects avoid transition checks
+ * and filter crossfades in the inner loop; transitions use the scalar path. */
+void bonsai_fx_process_buffer(struct bonsai_fx_voice *v,
+                              struct dd_frame *frames, uint32_t count);
 #endif

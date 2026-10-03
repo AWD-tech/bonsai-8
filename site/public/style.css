@@ -38,3 +38,7 @@
 @media(max-width:480px){.header{padding:0 16px;gap:8px}.header nav{gap:13px}.header nav>.guide-link{display:block;font-size:11px}.connect-button{padding:10px 9px;gap:7px}.usb-icon{display:none}.footer{flex-wrap:wrap;min-height:66px;height:auto;padding:14px 24px}}
 
 @media(min-width:481px) and (max-width:760px){.header nav>.guide-link{display:block}}
+
+/* Keep help links readable and reachable at every viewport width. */
+.footer{height:auto;min-height:84px;padding:18px 4%;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 28px}.footer nav{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px}.footer a,.footer button{display:inline-flex;align-items:center;min-height:44px;font-size:12px;white-space:nowrap}.footer a{text-decoration:underline;text-underline-offset:4px;text-decoration-color:#a7ae9b}.footer a:hover{color:var(--accent)}
+@media(max-width:760px){.footer{padding:18px 24px;gap:4px}.footer nav{width:100%;gap:8px 24px}.footer a,.footer button{font-size:12px}}

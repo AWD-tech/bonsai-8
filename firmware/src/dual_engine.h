@@ -10,6 +10,7 @@
 #define DD_P14S 5u
 #define DD_P16M 6u
 #define DD_MAX_DECODE 248u
+#define DD_EFFECT_CHUNK 64u
 struct dd_frame { int16_t l, r; };
 struct bonsai_fx;
 struct dd_voice {
@@ -33,6 +34,10 @@ struct dd_engine {
  /* Optional externally owned effects bank. NULL preserves the dry renderer.
   * Attach/detach only with audio excluded; controls use bonsai_fx_set(). */
  struct bonsai_fx *fx;
+ /* Audio-owner scratch: bounded chunks avoid growing the 1536-byte thread
+  * stack or allocating in the callback. Shared by both decks serially. */
+ struct dd_frame effect_frames[DD_EFFECT_CHUNK];
+ int32_t effect_sum[DD_EFFECT_CHUNK*2];
 };
 struct dd_pickup { int previous; bool waiting; };
 void dd_init(struct dd_engine *e);

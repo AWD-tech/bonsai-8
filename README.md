@@ -8,7 +8,9 @@ Private development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). 
 
 ## Release status
 
-The current candidate is **`bonsai-8-0.4.0`**. It was flashed on October 2 and its runtime version confirmed after power-on. The player reports all four existing song slots with four stems each. Playback testing reproduced dropouts with two streaming decks and two active filters, even with the website disconnected. Full eight-stem playback, USB audio under load, effects and recording are not yet hardware-verified. Changing source files or the website does not update a connected player.
+The local test candidate is **`bonsai-8-0.4.1`**, with batched per-stem effects and a fast path that also handles a paused deck. Exact sample/state comparisons, sanitizer tests and the ARM build pass; it has not yet been flashed or measured on hardware. The site installer still offers 0.4.0 pending the next hardware check.
+
+The player currently runs **`bonsai-8-0.4.0`**, flashed and identified on October 2, with all four existing songs listed. A stable all-eight-stem test reproduced 109/104 new deck underruns in ten seconds with two filters and the site disconnected. The user also reports stuttering with echo and reverb. Full-load playback, effects, USB monitoring and recording remain unverified. Changing source files or the website does not update a connected player.
 
 The four-song library was uploaded and independently sampled after the earlier 0.3.1 update. USB audio and physical telemetry work on the test Mac. Later streaming-reader changes gave a smooth four-audible-stem test, but full eight-stem playback and USB monitoring still produced underruns. The candidate includes another mixer optimisation; host tests and timing comparisons do not establish hardware performance. See `HARDWARE_TEST.md` for measured results and remaining limits.
 

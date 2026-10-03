@@ -331,7 +331,8 @@ static void test_effect_tails_on_empty_and_starved_sources(void)
 static void test_effect_steady_differential(void)
 {
  static const uint32_t rates[]={32768,65536,81920,73531};
- for(unsigned trial=0;trial<120;trial++) {
+ static const uint32_t counts[]={0,1,63,64,65,255,256,257,511,512};
+ for(unsigned trial=0;trial<600;trial++) {
   dd_init(&engine);bonsai_fx_init(&effects);engine.fx=&effects;
   atomic_store(&engine.master,128+trial%129);
   for(unsigned voice=0;voice<8;voice++) {
@@ -343,13 +344,17 @@ static void test_effect_steady_differential(void)
    (void)bonsai_fx_process(&effects.voice[voice],(struct dd_frame){i%2?12345:-5432,i%3?3456:-23456});
   for(unsigned k=0;k<2;k++) {
    struct dd_deck *d=&engine.deck[k];
-   dd_reset_deck(d,trial%5?15:9);
-   atomic_store(&d->playing,1);atomic_store(&d->speed,rates[(trial+k)%4]);
-   d->envelope=256;d->fraction=trial%2?32768:random_u32()&65535;
+   unsigned mask=trial%7?15:trial%5?9:0;
+   bool play=trial%3||k!=trial%2;
+   dd_reset_deck(d,mask);
+   atomic_store(&d->playing,play);atomic_store(&d->speed,rates[(trial+k)%4]);
+   d->envelope=play&&mask?256:0;
+   d->fraction=trial%3==0?0:trial%3==1?32768:random_u32()&65535;
+   d->last=(struct dd_frame){(int16_t)random_u32(),(int16_t)random_u32()};
    uint32_t pos=UINT32_MAX-200;
    atomic_store(&d->read,pos);
    for(unsigned s=0;s<4;s++) {
-    struct dd_voice *v=&d->voice[s];unsigned gain=(s+trial)%3?0:128;
+    struct dd_voice *v=&d->voice[s];unsigned gain=(s+trial)%3?random_u32()%257:0;
     atomic_store(&v->gain,gain);v->current_gain=gain;
     atomic_store(&v->written,pos+DD_RING);
     for(unsigned i=0;i<DD_RING;i++)
@@ -359,19 +364,26 @@ static void test_effect_steady_differential(void)
   memcpy(&reference_engine,&engine,sizeof(engine));
   memcpy(&reference_effects,&effects,sizeof(effects));reference_engine.fx=&reference_effects;
   for(unsigned pass=0;pass<4;pass++) {
+   if(pass==1) {
+    assert(bonsai_fx_set(&effects,trial%8,BONSAI_FX_REVERB,256));
+    assert(bonsai_fx_set(&reference_effects,trial%8,BONSAI_FX_REVERB,256));
+   }
    if(pass==2) {
     /* Exercise the optimized renderer during effect bypass fade as well. */
     assert(bonsai_fx_set(&effects,trial%8,BONSAI_FX_ECHO,0));
     assert(bonsai_fx_set(&reference_effects,trial%8,BONSAI_FX_ECHO,0));
    }
-   dd_render(&engine,out,512);reference_render(&reference_engine,reference_out,512);
-   assert(!memcmp(out,reference_out,sizeof(out)));
+   unsigned n=counts[(trial+pass)%10];
+   dd_render(&engine,out,n);reference_render(&reference_engine,reference_out,n);
+   assert(!memcmp(out,reference_out,n*2*sizeof(*out)));
    assert(engine.clips==reference_engine.clips);
    for(unsigned k=0;k<2;k++) {
     struct dd_deck *a=&engine.deck[k],*b=&reference_engine.deck[k];
     assert(atomic_load(&a->read)==atomic_load(&b->read));
     assert(a->fraction==b->fraction&&a->underruns==b->underruns);
+    assert(a->starved==b->starved&&a->envelope==b->envelope);
     assert(a->last.l==b->last.l&&a->last.r==b->last.r);
+    for(unsigned s=0;s<4;s++) assert(a->voice[s].current_gain==b->voice[s].current_gain);
    }
    for(unsigned voice=0;voice<8;voice++) compare_effect_voice(voice);
   }

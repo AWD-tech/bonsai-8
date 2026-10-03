@@ -96,31 +96,70 @@ static struct dd_frame steady_sample(const struct steady_voice *v,unsigned n,
  }
  return (struct dd_frame){l/1024,r/1024};
 }
-static struct dd_frame steady_sample_fx(const struct steady_voice *v,unsigned n,
-                                       uint32_t pos,uint32_t fraction)
+static void interpolate_buffer(const struct dd_frame *ring,struct dd_frame *out,
+                               uint32_t count,uint32_t pos,uint32_t fraction,
+                               uint32_t step)
 {
- uint32_t a=pos&(DD_RING-1),b=(pos+1)&(DD_RING-1);
- int32_t l=0,r=0;
- for(unsigned s=0;s<n;s++) {
-  struct dd_frame in={0,0};
-  if(v[s].ring) {
-   in=v[s].ring[a];
-   if(fraction) {
-    struct dd_frame next=v[s].ring[b];
-    if(fraction==32768) {
-     in.l+=(int16_t)(((int32_t)next.l-in.l)/2);
-     in.r+=(int16_t)(((int32_t)next.r-in.r)/2);
-    } else {
-     in.l=(int16_t)interpolate(in.l,next.l,fraction);
-     in.r=(int16_t)interpolate(in.r,next.r,fraction);
+ if(!ring) {memset(out,0,count*sizeof(*out));return;}
+ uint32_t i=0;
+ if(step==32768&&(fraction==0||fraction==32768)) {
+  /* At 1x each source frame yields its original and a midpoint. Read and
+   * interpolate that pair once, without per-frame phase multiplication. */
+  if(fraction==32768&&count) {
+   struct dd_frame x=ring[pos&(DD_RING-1)],y=ring[(pos+1)&(DD_RING-1)];
+   out[i++]=(struct dd_frame){x.l+((int32_t)y.l-x.l)/2,x.r+((int32_t)y.r-x.r)/2};
+   ++pos;
+  }
+  for(;i+1<count;i+=2,++pos) {
+   struct dd_frame x=ring[pos&(DD_RING-1)],y=ring[(pos+1)&(DD_RING-1)];
+   out[i]=x;
+   out[i+1]=(struct dd_frame){x.l+((int32_t)y.l-x.l)/2,x.r+((int32_t)y.r-x.r)/2};
+  }
+  if(i<count) out[i]=ring[pos&(DD_RING-1)];
+  return;
+ }
+ for(;i<count;i++) {
+  struct dd_frame x=ring[pos&(DD_RING-1)],y=ring[(pos+1)&(DD_RING-1)];
+  out[i]=(struct dd_frame){interpolate(x.l,y.l,fraction),interpolate(x.r,y.r,fraction)};
+  fraction+=step;pos+=fraction>>16;fraction&=65535;
+ }
+}
+static void render_effect_chunks(struct dd_engine *e,int16_t *out,uint32_t count,
+                                 const struct steady_voice voice[2][4],
+                                 const unsigned voices[2],const bool running[2],
+                                 uint32_t pos[2],uint32_t fraction[2],
+                                 const uint32_t step[2],uint32_t master)
+{
+ for(uint32_t offset=0;offset<count;offset+=DD_EFFECT_CHUNK) {
+  uint32_t n=count-offset;
+  if(n>DD_EFFECT_CHUNK) n=DD_EFFECT_CHUNK;
+  for(unsigned k=0;k<2;k++) {
+   memset(e->effect_sum,0,n*2*sizeof(*e->effect_sum));
+   for(unsigned s=0;s<voices[k];s++) {
+    const struct steady_voice *v=&voice[k][s];
+    interpolate_buffer(v->ring,e->effect_frames,n,pos[k],fraction[k],step[k]);
+    if(v->fx) bonsai_fx_process_buffer(v->fx,e->effect_frames,n);
+    if(!v->gain) continue;
+    for(uint32_t f=0;f<n;f++) {
+     e->effect_sum[2*f]+=(int32_t)e->effect_frames[f].l*(int32_t)v->gain;
+     e->effect_sum[2*f+1]+=(int32_t)e->effect_frames[f].r*(int32_t)v->gain;
     }
    }
+   for(uint32_t f=0;f<n;f++) {
+    int32_t l=e->effect_sum[2*f]/1024,r=e->effect_sum[2*f+1]/1024;
+    uint32_t i=2*(offset+f);
+    if(!k) {out[i]=(int16_t)l;out[i+1]=(int16_t)r;}
+    else {
+     out[i]=clamp((out[i]+l)*(int32_t)master/256,&e->clips);
+     out[i+1]=clamp((out[i+1]+r)*(int32_t)master/256,&e->clips);
+    }
+    if(running[k]&&f==n-1) e->deck[k].last=(struct dd_frame){l,r};
+   }
+   if(running[k]) {
+    fraction[k]+=n*step[k];pos[k]+=fraction[k]>>16;fraction[k]&=65535;
+   }
   }
-  if(v[s].fx) in=bonsai_fx_process(v[s].fx,in);
-  l+=(int32_t)in.l*(int32_t)v[s].gain;
-  r+=(int32_t)in.r*(int32_t)v[s].gain;
  }
- return (struct dd_frame){l/1024,r/1024};
 }
 static bool render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
                           uint32_t pos[2],const uint32_t available[2],
@@ -135,16 +174,17 @@ static bool render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
   * within 32 bits; callers may render larger blocks through the general path. */
  if(!count||count>DD_RING) return false;
  struct steady_voice voice[2][4];unsigned voices[2]={0,0};
- uint32_t fraction[2];
+ uint32_t fraction[2];bool running[2];
  for(unsigned k=0;k<2;k++) {
   struct dd_deck *d=&e->deck[k];
-  if(!play[k]||!any[k]||d->starved||d->envelope!=256) return false;
+  running[k]=play[k]&&any[k];
+  if(d->starved||d->envelope!=(running[k]?256:0)) return false;
   fraction[k]=d->fraction;
   uint32_t needed=2+((fraction[k]+(count-1)*step[k])>>16);
-  if(available[k]<needed) return false;
+  if(running[k]&&available[k]<needed) return false;
   for(unsigned s=0;s<4;s++) {
    struct dd_voice *v=&d->voice[s];
-   if(!v->present) {
+   if(!running[k]||!v->present) {
     if(effect[k][s]) voice[k][voices[k]++]=(struct steady_voice){NULL,0,effect[k][s]};
     continue;
    }
@@ -153,12 +193,16 @@ static bool render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
     voice[k][voices[k]++]=(struct steady_voice){v->ring,gain[k][s],effect[k][s]};
   }
  }
- struct dd_frame last[2];
+ if(effects_active||!running[0]||!running[1]) {
+  render_effect_chunks(e,out,count,voice,voices,running,pos,fraction,step,master);
+  for(unsigned k=0;k<2;k++) e->deck[k].fraction=fraction[k];
+  return true;
+ }
+ struct dd_frame last[2]={e->deck[0].last,e->deck[1].last};
  for(uint32_t f=0;f<count;f++) {
   int32_t l=0,r=0;
   for(unsigned k=0;k<2;k++) {
-   last[k]=effects_active?steady_sample_fx(voice[k],voices[k],pos[k],fraction[k]):
-                          steady_sample(voice[k],voices[k],pos[k],fraction[k]);
+   last[k]=steady_sample(voice[k],voices[k],pos[k],fraction[k]);
    l+=last[k].l;r+=last[k].r;
    fraction[k]+=step[k];pos[k]+=fraction[k]>>16;fraction[k]&=65535;
   }

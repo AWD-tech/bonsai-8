@@ -163,3 +163,46 @@ struct dd_frame bonsai_fx_process(struct bonsai_fx_voice *v,
  return (struct dd_frame){saturate((int32_t)input.l + wet, v),
                          saturate((int32_t)input.r + wet, v)};
 }
+
+void bonsai_fx_process_buffer(struct bonsai_fx_voice *v,
+                              struct dd_frame *frames, uint32_t count)
+{
+ uint32_t i=0;
+ for(;i<count;i++) {
+  if(v->type==v->requested_type) {
+   if(v->type==BONSAI_FX_NONE) return;
+   if(v->type==BONSAI_FX_FILTER) {
+    if(v->mix==256&&v->filter_seeded) break;
+   } else if(v->clear_index==BONSAI_FX_HISTORY&&v->mix==v->requested_amount) break;
+  }
+  frames[i]=bonsai_fx_process(v,frames[i]);
+ }
+ if(i==count) return;
+ if(v->type==BONSAI_FX_FILTER) {
+  int32_t l=v->low_l,r=v->low_r;
+  uint16_t alpha=v->alpha;
+  for(;i<count;i++) {
+   l=lowpass(l,frames[i].l,alpha);r=lowpass(r,frames[i].r,alpha);
+   frames[i]=(struct dd_frame){l/256,r/256};
+  }
+  v->low_l=l;v->low_r=r;
+  return;
+ }
+ /* The delay networks tick at 4 kHz. Only accumulation, interpolation and
+  * mixing run at 48 kHz; activation/clearing/ramp checks happen above. */
+ for(;i<count;i++) {
+  struct dd_frame in=frames[i];
+  v->input_sum+=((int32_t)in.l+in.r)/2;
+  if(++v->phase==BONSAI_FX_DECIMATION) {
+   int16_t mono=(int16_t)(v->input_sum/(int)BONSAI_FX_DECIMATION);
+   v->input_sum=0;v->phase=0;
+   v->wet_previous=v->wet_next;
+   v->wet_next=v->type==BONSAI_FX_ECHO?echo_tick(v,mono):reverb_tick(v,mono);
+  }
+  int32_t wet=v->wet_previous+
+   ((int32_t)v->wet_next-v->wet_previous)*v->phase/(int)BONSAI_FX_DECIMATION;
+  wet=wet*v->mix/256;
+  frames[i]=(struct dd_frame){saturate((int32_t)in.l+wet,v),
+                              saturate((int32_t)in.r+wet,v)};
+ }
+}

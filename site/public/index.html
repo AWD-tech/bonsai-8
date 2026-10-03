@@ -6,7 +6,7 @@
 <title>Bonsai 8 / SP–1 companion</title>
 <link rel="canonical" href="https://sp-1.xyz/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%23eeeee8'/%3E%3Cpath d='M20 9L32 30H8Z' fill='%23d45d47'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="./style.css?v=20261002-guide-02">
+<link rel="stylesheet" href="./style.css?v=20261002-accurate-03">
 <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
 </head>
 <body>
@@ -29,7 +29,7 @@
   <p class="privacy">Audio stays on your device.</p>
 </aside>
 </main>
-<footer class="footer"><a class="text-button" href="./guide.html">Illustrated guide</a><button id="firmware-open" class="text-button">Install Bonsai 8</button><button id="credits-open" class="text-button">About this project</button></footer>
+<footer class="footer" aria-label="Guides and project"><nav class="footer-guides" aria-label="User guides"><a href="./guide.html">Illustrated guide</a><a href="./Bonsai-8-User-Manual.pdf">User manual (PDF)</a></nav><nav class="footer-project" aria-label="Project"><button id="firmware-open" class="text-button">Install Bonsai 8</button><button id="credits-open" class="text-button">About this project</button></nav></footer>
 <div id="toast" role="status" aria-live="polite" hidden></div>
 <dialog id="connect-dialog">
 <div class="dialog-header"><span class="eyebrow">Connect your SP–1</span><button data-close aria-label="Close connection panel"><svg class="ui-icon " viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
@@ -52,5 +52,5 @@
 </dialog>
 <dialog id="delete-dialog"><div class="dialog-header"><span class="eyebrow">Remove song</span><button data-close aria-label="Close delete confirmation"><svg class="ui-icon " viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div><h2 id="delete-title">Delete this song?</h2><p>This removes the selected song from the player’s library. Other songs stay intact. Both decks will pause.</p><p>Export it first if you want to keep a copy.</p><button id="delete-confirm" class="primary-button">Delete selected song</button></dialog>
 <dialog id="firmware-dialog"><div class="dialog-header"><span class="eyebrow">Bonsai 8 firmware</span><button data-close aria-label="Close firmware installer"><svg class="ui-icon " viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div><h2>Make it Bonsai 8.</h2><p id="firmware-release">Checking the published release…</p><ol class="steps"><li><span>01</span><div>Disconnect the site.<small>Close other player connections. Your uploaded songs stay on the player.</small></div></li><li><span>02</span><div>Enter bootloader mode.<small>On the powered-on SP–1, hold Track 1 + Track 4 for three seconds. Leave USB connected.</small></div></li><li><span>03</span><div>Choose the bootloader below.<small>Keep USB connected until the update finishes. Then hold FUNCTION to power on normally.</small></div></li></ol><label class="check-row"><input id="firmware-consent" type="checkbox"> Install this custom firmware on my SP–1</label><button id="flash-firmware" class="primary-button" disabled>Choose bootloader &amp; install</button><progress id="firmware-progress" max="1" value="0" hidden aria-label="Firmware installation progress"></progress><p id="firmware-status" role="status"></p><p class="notice">Only the application is updated. The updater verifies its responses; it cannot read back the installed application. Live playback still needs checking after installation.</p></dialog>
-<script type="module" src="./app.js?v=20261002-guide-02"></script>
+<script type="module" src="./app.js?v=20261002-accurate-03"></script>
 </body></html>

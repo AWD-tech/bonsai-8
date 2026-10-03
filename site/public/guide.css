@@ -9,3 +9,8 @@
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 @media print{.orientation-wide{display:block}.orientation-mobile{display:none}}
 @media print{html{scroll-behavior:auto}body{background:#fff;color:#222}.masthead{padding:0 0 15px}.masthead nav,.contents,.skip-link,.return-link{display:none}main{padding:0;max-width:none}.intro{padding:28px 0;grid-template-columns:1.3fr 1fr;gap:35px}h1{font-size:49px;letter-spacing:-2px}.intro-copy{font-size:13px}.lesson{padding:27px 0;break-inside:avoid}.lesson-grid{grid-template-columns:1.05fr 1fr;gap:35px}.lesson h2{font-size:25px}.lesson-heading{margin-bottom:15px}.lesson-copy p,.lesson-copy li{font-size:11px;line-height:1.6}.lesson-copy .note{font-size:10px;margin-top:15px}.lesson-copy li{margin-bottom:8px}.legend p,figcaption{font-size:9px}.overview{max-width:650px}.closing{padding:26px 0;gap:30px}.closing p,.closing a{font-size:10px}.footer{padding:15px 0;font-size:9px}.chord span{font-size:9px;padding:5px 7px}a{text-decoration:none}.drawing{max-height:270px}#know-your-player .drawing{max-height:310px}@page{size:A4;margin:16mm}}
+
+.device-views{display:grid;grid-template-columns:1fr 1fr;gap:32px}.device-views figcaption{max-width:390px;margin:0 auto;text-align:center}.top-view{max-width:380px;margin:20px auto 0}.drawing .physical-status-leds{fill:var(--ink)}
+@media(max-width:760px){.device-views{grid-template-columns:1fr;gap:28px}.device-views figure{max-width:470px;margin:auto}.top-view{max-width:330px;margin-top:24px}}
+
+.device-views figure{width:100%;min-width:0}
