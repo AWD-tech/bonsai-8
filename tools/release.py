@@ -17,7 +17,7 @@ CASES = ('dry', 'filter', 'echo', 'reverb', 'usb_mirror')
 COUNTERS = ('read_errors', 'bad_blocks', 'i2s_errors', 'crc_errors',
             'capture_underruns', 'capture_overflows', 'capture_errors',
             'clips', 'fx_clips')
-STABLE = ('firmware', 'reset', 'slots', 'playing', 'speed', 'gains',
+STABLE = ('firmware', 'reset', 'slots', 'playing', 'speed',
           'mute', 'master', 'fx', 'record', 'capture_active')
 
 def require(condition, message):
@@ -27,6 +27,14 @@ def require(condition, message):
 def delta(before, after):
     require(isinstance(before, int) and isinstance(after, int), 'Invalid counter')
     return (after - before) & 0xffffffff
+
+def stable_gains(states):
+    """Allow one ADC level of endpoint noise, never a changed mixing workload."""
+    gains = [s.get('gains', []) for s in states]
+    return bool(gains) and all(len(g) == 8 for g in gains) and all(
+        250 <= min(g[i] for g in gains) <= max(g[i] for g in gains) <= 256
+        and max(g[i] for g in gains) - min(g[i] for g in gains) <= 1
+        for i in range(8))
 
 def validate_playback(report, version, case):
     require(case in CASES, 'Unknown playback gate')
@@ -39,6 +47,7 @@ def validate_playback(report, version, case):
     require(times[0] == 0 and times[-1] >= 20
             and all(b > a for a, b in zip(times, times[1:])), 'Invalid sample clock')
     states = [s['status'] for s in samples]
+    require(stable_gains(states), 'Stem gains changed beyond one ADC level')
     first = states[0]
     for status in states:
         require(status.get('firmware') == 'bonsai-8-' + version, 'Wrong runtime version')

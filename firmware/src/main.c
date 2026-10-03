@@ -1653,6 +1653,7 @@ static volatile uint32_t g_i2s_wfail_cnt;        /* diag: I2S write failures (au
 static volatile uint32_t g_audio_us_max;         /* diag: worst looper_audio_block exec time, us (DWT, session) */
 #ifdef SP1_DUAL_DECK
 static volatile uint32_t g_dual_audio_us_total, g_dual_audio_blocks;
+static volatile uint32_t g_dual_cdc_us, g_dual_cdc_max, g_dual_cdc_bytes;
 #endif
 static volatile int32_t  g_play_lowat = 0x7FFFFFFF; /* diag: window MIN play-ring margin, samples */
 static volatile uint32_t g_rec_hiwat;            /* diag: window MAX rec-ring fill, samples */
@@ -7026,7 +7027,15 @@ static void cdc_rx_isr(const struct device *dev, void *u)
 /* Blocking byte send (matches how printk drives the console). */
 static void cdc_tx(const uint8_t *p, uint32_t n)
 {
+#ifdef SP1_DUAL_DECK
+ uint32_t start=DWT->CYCCNT;
+#endif
 	for (uint32_t i = 0; i < n; i++) uart_poll_out(cdc, p[i]);
+#ifdef SP1_DUAL_DECK
+ uint32_t us=(DWT->CYCCNT-start)/64u;
+ g_dual_cdc_us+=us;g_dual_cdc_bytes+=n;
+ if(us>g_dual_cdc_max) g_dual_cdc_max=us;
+#endif
 }
 
 /* Pull exactly n bytes from the RX ring, up to timeout_ms. */
@@ -10962,22 +10971,37 @@ static const struct device *const uac2_dev =
 static struct dd_capture dd_usb_audio;
 static bool dd_usb_capture_on;
 static uint32_t dd_usb_send_errors,dd_usb_packets;
+/* Bounded DWT probes separate capture copying from cooperative USB service.
+ * Totals wrap at uint32; compare unsigned deltas over short test windows. */
+static volatile uint32_t dd_capture_push_us, dd_capture_push_max, dd_capture_push_calls;
+static volatile uint32_t dd_capture_sof_us, dd_capture_sof_max, dd_capture_sof_calls;
 K_MEM_SLAB_DEFINE_STATIC(dd_capture_slab,ROUND_UP(196,UDC_BUF_GRANULARITY),4,UDC_BUF_ALIGN);
 static void dual_capture_audio(const int16_t *stereo)
 {
  unsigned key=irq_lock();
- if(dd_usb_capture_on) dd_capture_push(&dd_usb_audio,stereo,BLK_FRAMES);
+ if(dd_usb_capture_on) {
+  uint32_t start=DWT->CYCCNT;
+  dd_capture_push(&dd_usb_audio,stereo,BLK_FRAMES);
+  uint32_t us=(DWT->CYCCNT-start)/64u;
+  dd_capture_push_us+=us;++dd_capture_push_calls;
+  if(us>dd_capture_push_max) dd_capture_push_max=us;
+ }
  irq_unlock(key);
 }
 static void dual_capture_sof(void)
 {
  if(!dd_usb_capture_on) return;
+ uint32_t start=DWT->CYCCNT;
  void *buf;
- if(k_mem_slab_alloc(&dd_capture_slab,&buf,K_NO_WAIT)) {dd_usb_send_errors++;return;}
+ if(k_mem_slab_alloc(&dd_capture_slab,&buf,K_NO_WAIT)) {dd_usb_send_errors++;goto done;}
  uint32_t frames=dd_capture_packet(&dd_usb_audio,buf);
  if(!frames){frames=48;memset(buf,0,frames*4);}
  int rc=usbd_uac2_send(uac2_dev,DD_CAPTURE_TERMINAL,buf,(uint16_t)(frames*4));
  if(rc){dd_usb_send_errors++;k_mem_slab_free(&dd_capture_slab,buf);}else dd_usb_packets++;
+done:;
+ uint32_t us=(DWT->CYCCNT-start)/64u;
+ dd_capture_sof_us+=us;++dd_capture_sof_calls;
+ if(us>dd_capture_sof_max) dd_capture_sof_max=us;
 }
 #endif
 

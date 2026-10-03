@@ -83,6 +83,16 @@ static int32_t lowpass(int32_t previous, int16_t sample, uint16_t alpha)
  int32_t step = (int32_t)((magnitude * alpha) >> 8);
  return previous + (difference < 0 ? -step : step);
 }
+static int32_t lowpass_small_alpha(int32_t previous,int16_t sample,uint16_t alpha)
+{
+ /* The state stays inside int16 * 256. For alpha <= 128 the signed product
+  * is bounded by 65535 * 256 * 128 = 2147450880, below INT32_MAX.
+  * C's division truncates toward zero, exactly matching the magnitude path.
+  * Hoisting the coefficient bound outside a steady block saves sign/absolute
+  * reconstruction on both channels without changing a sample or tone. */
+ int32_t difference=(int32_t)sample*256-previous;
+ return previous+difference*alpha/256;
+}
 static int16_t echo_tick(struct bonsai_fx_voice *v, int16_t input)
 {
  unsigned p = v->position[0];
@@ -219,9 +229,17 @@ void bonsai_fx_process_buffer(struct bonsai_fx_voice *v,
    frames[i]=(struct dd_frame){l/256,r/256};
   }
   uint16_t alpha=v->alpha;
-  for(;i<count;i++) {
-   l=lowpass(l,frames[i].l,alpha);r=lowpass(r,frames[i].r,alpha);
-   frames[i]=(struct dd_frame){l/256,r/256};
+  if(alpha<=128u) {
+   for(;i<count;i++) {
+    l=lowpass_small_alpha(l,frames[i].l,alpha);
+    r=lowpass_small_alpha(r,frames[i].r,alpha);
+    frames[i]=(struct dd_frame){l/256,r/256};
+   }
+  } else {
+   for(;i<count;i++) {
+    l=lowpass(l,frames[i].l,alpha);r=lowpass(r,frames[i].r,alpha);
+    frames[i]=(struct dd_frame){l/256,r/256};
+   }
   }
   v->low_l=l;v->low_r=r;
   return;

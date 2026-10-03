@@ -208,6 +208,32 @@ static void test_buffer_matches_sample_processing(void)
   assert(!memcmp(&fx.voice[0],&reference.voice[0],sizeof(fx.voice[0])));
  }
 }
+static void test_steady_filter_all_coefficients_match(void)
+{
+ static struct bonsai_fx reference;
+ struct dd_frame actual[256],expected[256];
+ for(unsigned amount=1;amount<=256;amount++) {
+  bonsai_fx_init(&fx);bonsai_fx_init(&reference);
+  assert(bonsai_fx_set(&fx,0,BONSAI_FX_FILTER,amount));
+  assert(bonsai_fx_set(&reference,0,BONSAI_FX_FILTER,amount));
+  bonsai_fx_begin_block(&fx);bonsai_fx_begin_block(&reference);
+  for(unsigned i=0;i<256;i++) {
+   struct dd_frame in={INT16_MIN,INT16_MAX};
+   (void)bonsai_fx_process(&fx.voice[0],in);
+   (void)bonsai_fx_process(&reference.voice[0],in);
+  }
+  for(unsigned block=0;block<16;block++) {
+   for(unsigned i=0;i<256;i++) {
+    int16_t left=(i&1)?INT16_MIN:INT16_MAX;
+    actual[i]=(struct dd_frame){left,(int16_t)(-left-1)};
+    expected[i]=bonsai_fx_process(&reference.voice[0],actual[i]);
+   }
+   bonsai_fx_process_buffer(&fx.voice[0],actual,256);
+   assert(!memcmp(actual,expected,sizeof(actual)));
+   assert(!memcmp(&fx.voice[0],&reference.voice[0],sizeof(fx.voice[0])));
+  }
+ }
+}
 static int64_t echo_return_energy(unsigned phase_step)
 {
  static const int16_t sine[48] = {
@@ -308,6 +334,7 @@ int main(void)
  test_incremental_reset_and_switch(); test_full_scale_stability();
  test_song_reset_preserves_settings_only();
  test_buffer_matches_sample_processing();
+ test_steady_filter_all_coefficients_match();
  printf("PASS: stereo bypass/filter, 250 ms echo, reverb decay, isolation, "
         "incremental reset and bounded feedback (%zu bytes)\n", sizeof(fx));
 }

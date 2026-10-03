@@ -28,6 +28,13 @@ class ReleaseTests(unittest.TestCase):
     def test_accepts_measured_eight_stem_dry_run(self):
         release.validate_playback(report(), '0.4.1', 'dry')
 
+    def test_endpoint_adc_noise_is_bounded_to_one_level(self):
+        r=report();r['samples'][-1]['status']['gains'][2]=255
+        release.validate_playback(r,'0.4.1','dry')
+        for value in [254,249,0,257]:
+            r['samples'][-1]['status']['gains'][2]=value
+            with self.assertRaises(ValueError):release.validate_playback(r,'0.4.1','dry')
+
     def test_recalculates_counters_instead_of_trusting_verdict(self):
         r=report();r['samples'][-1]['status']['underruns'][1]=1
         with self.assertRaises(ValueError): release.validate_playback(r,'0.4.1','dry')

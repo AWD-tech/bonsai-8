@@ -120,7 +120,7 @@ class Device:
         # status record instead of treating a blank/banner line as JSON.
         deadline = time.monotonic()+5
         while time.monotonic() < deadline:
-            line = self.serial.readline(1024)
+            line = self.serial.readline(2048)
             if not line: break
             try: state = json.loads(line)
             except (ValueError, UnicodeError): continue

@@ -78,6 +78,14 @@ class TransferTests(unittest.TestCase):
   device.serial=SimpleNamespace(write=written.append,readline=lambda *args:next(lines,b''))
   self.assertEqual(device.status()['storage'],0)
   self.assertEqual(written,[b'DDSTAT?\n'])
+ def test_status_accepts_extended_capture_timing(self):
+  import json
+  device=sp1.Device.__new__(sp1.Device);device.transfer=False
+  status={'firmware':'bonsai-8-0.4.3','storage':1,'capture_sof_us':4294967295,
+          'capture_push_us':4294967295,'diagnostic_padding':'x'*1050}
+  line=(json.dumps(status)+'\n').encode()
+  device.serial=SimpleNamespace(write=lambda _:None,readline=lambda limit:line[:limit])
+  self.assertEqual(device.status(),status)
  def test_status_rejects_incomplete_reply(self):
   device=sp1.Device.__new__(sp1.Device);device.transfer=False
   lines=iter([b'{"firmware":',b''])

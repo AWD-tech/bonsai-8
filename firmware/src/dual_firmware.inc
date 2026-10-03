@@ -218,10 +218,12 @@ static void dual_status(void)
  char line[1472];uint32_t fx_clips=0;
  unsigned key=irq_lock();
  uint32_t audio_total=g_dual_audio_us_total,audio_blocks=g_dual_audio_blocks;
+ uint32_t push_us=dd_capture_push_us,push_calls=dd_capture_push_calls,push_max=dd_capture_push_max;
+ uint32_t sof_us=dd_capture_sof_us,sof_calls=dd_capture_sof_calls,sof_max=dd_capture_sof_max;
  irq_unlock(key);
  for(unsigned i=0;i<8;i++) fx_clips+=dd_fx.voice[i].clipped;
  int n=snprintf(line,sizeof(line),
-  "{\"firmware\":\"bonsai-8-0.4.2\",\"mirror\":1,\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"audio_us_total\":%u,\"audio_blocks\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
+  "{\"firmware\":\"bonsai-8-0.4.3\",\"mirror\":1,\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"audio_us_total\":%u,\"audio_blocks\":%u,\"capture_push_us\":%u,\"capture_push_calls\":%u,\"capture_push_max\":%u,\"capture_sof_us\":%u,\"capture_sof_calls\":%u,\"capture_sof_max\":%u,\"cdc_us\":%u,\"cdc_max\":%u,\"cdc_bytes\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
   dd_usb_capture_on,dd_usb_packets,dd_usb_audio.underruns,dd_usb_audio.overflows,dd_usb_send_errors,
   atomic_load(&dd_position[0]),atomic_load(&dd_position[1]),atomic_load(&dd_length[0]),atomic_load(&dd_length[1]),
   atomic_load(&dd_record_state),atomic_load(&dd_record_slot)+1,atomic_load(&dd_rec.source_frames)/2,atomic_load(&dd_record_error),
@@ -230,7 +232,7 @@ static void dual_status(void)
   fx_clips,atomic_load(&dd_storage_ok),dd_selected,atomic_load(&dd_slot[0])+1,atomic_load(&dd_slot[1])+1,
   atomic_load(&dd.deck[0].playing),atomic_load(&dd.deck[1].playing),
   dd.deck[0].underruns,dd.deck[1].underruns,dd_read_errors,dd_bad_blocks,atomic_load(&dd_errors),dd.clips,
-  g_audio_us_max,audio_total,audio_blocks,g_i2s_wfail_cnt,emmc_crc_rd_errs,g_m71_as,g_m71_wu,g_m71_rt,g_m71_fb,g_resetreas,g_last_fault_reason,atomic_load(&dd.master),
+  g_audio_us_max,audio_total,audio_blocks,push_us,push_calls,push_max,sof_us,sof_calls,sof_max,g_dual_cdc_us,g_dual_cdc_max,g_dual_cdc_bytes,g_i2s_wfail_cnt,emmc_crc_rd_errs,g_m71_as,g_m71_wu,g_m71_rt,g_m71_fb,g_resetreas,g_last_fault_reason,atomic_load(&dd.master),
   atomic_load(&dd.deck[0].speed),atomic_load(&dd.deck[1].speed),
   atomic_load(&dd.deck[0].mute_mask),atomic_load(&dd.deck[1].mute_mask),
   atomic_load(&dd.deck[0].voice[0].gain),atomic_load(&dd.deck[0].voice[1].gain),

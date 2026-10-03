@@ -43,7 +43,7 @@ def main():
   assert ram_used<=0x40000
  sources=[ROOT/'README.md',ROOT/'README-upstream.md',ROOT/'LICENSE',ROOT/'HARDWARE_TEST.md',ROOT/'USER_MANUAL.md',ROOT/'CONTRIBUTING.md',ROOT/'RELEASE_POLICY.md']
  for directory in ['firmware','boards','tools','tests']:
-  sources += [p for p in (ROOT/directory).rglob('*') if p.is_file() and '__pycache__' not in p.parts]
+  sources += [p for p in (ROOT/directory).rglob('*') if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.log']
  manifest={
   'name':'Bonsai 8','version':version,'status':'Hardware-test candidate. See HARDWARE_TEST.md for version-specific measured results; packaging does not establish flashing or hardware verification.',
   'upstream_commit':'44ba1ecbec6c844dba7f47eacee94c53af8ab10d',
