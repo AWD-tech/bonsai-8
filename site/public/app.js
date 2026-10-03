@@ -1,4 +1,4 @@
-import {setupLibrary} from './library-ui.js?v=20261003-recording-library-02';
+import {setupLibrary} from './library-ui.js?v=20261003-recording-library-03';
 import { AudioEngine } from './audio.js?v=20261003-two-decks-01';
 import { setupBrowserMixer, exportSnapshot } from './browser-mixer.js?v=20261003-layout-02';
 import { setupMatching } from './match.js?v=20261003-match-01';
