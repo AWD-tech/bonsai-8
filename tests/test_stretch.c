@@ -83,6 +83,8 @@ static void missing_and_wrap(void)
 int main(void)
 {
  const uint32_t rates[]={32768,49152,65536,73728,81920,50001};
- for(unsigned r=0;r<6;r++)run(rates[r]);reset_and_coalesce();missing_and_wrap();
+ for(unsigned r=0;r<6;r++)run(rates[r]);
+ reset_and_coalesce();
+ missing_and_wrap();
  printf("PASS budgeted stretch: raw per-stem convex oracle, exact1x, stereo, clocks, wrap, bounds, coalescing, reset generation; state=%zu/work=%zu/two=%zu\n",sizeof(state),sizeof(work),sizeof(state)*2+sizeof(work));
 }
