@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f1f0e8">
+  <meta name="description" content="An illustrated guide to Bonsai 8 on the SP-1. Learn the controls, mix two songs, balance stems, record a mix and use the companion site.">
+  <title>Bonsai 8 — Illustrated guide</title>
+  <link rel="canonical" href="https://sp-1.xyz/guide.html">
+  <link rel="stylesheet" href="./guide.css?v=20261002-accurate-03">
+</head>
+<body>
+<a class="skip-link" href="#lessons">Skip to instructions</a>
+<svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="#b44b37"/></marker>
+    <!-- Orthographic views share a 156:218 enclosure ratio, traced from the
+         original front guide and checked against the owner's side photographs.
+         Front markings are separate from the four LEDs on the right edge. -->
+    <symbol id="player" viewBox="0 0 200 280">
+      <g stroke="var(--ink)" stroke-width=".9" stroke-linejoin="round">
+        <rect x="28" y="35" width="156" height="218" rx="3.6" fill="var(--device)"/>
+        <path d="M158.5 35h21.9a3.6 3.6 0 0 1 3.6 3.6v210.8a3.6 3.6 0 0 1-3.6 3.6h-21.9Z" fill="var(--side)"/>
+        <path d="M48 35v-1.6h14v1.6m11 0v-1.6h14V35" fill="var(--button)"/>
+        <path d="M184 57h2.2v35H184m0 107h2.2v35H184" fill="var(--button)"/>
+        <path d="M28 60h-1.7v30H28" fill="var(--button)"/>
+      </g>
+      <path d="M51 44h5m22-3v6m-3-3h6" fill="none" stroke="var(--ink)" stroke-width=".7"/>
+      <path d="m171 71 3.1 5.3h-6.2Z" fill="var(--red)"/>
+      <g fill="var(--ink)"><circle cx="171.3" cy="217.4" r="1.3"/><circle cx="171.3" cy="222.8" r="1.3"/></g>
+      <g fill="var(--ink)"><rect x="44.35" y="121.2" width="8.3" height="44.5" rx="4.15"/><rect x="74.35" y="121.2" width="8.3" height="44.5" rx="4.15"/><rect x="104.35" y="121.2" width="8.3" height="44.5" rx="4.15"/><rect x="134.35" y="121.2" width="8.3" height="44.5" rx="4.15"/></g>
+      <g fill="var(--button)" stroke="var(--ink)" stroke-width=".8"><circle cx="48.5" cy="147" r="3.3"/><circle cx="78.5" cy="133" r="3.3"/><circle cx="108.5" cy="158" r="3.3"/><circle cx="138.5" cy="140" r="3.3"/>
+        <rect x="44.6" y="202.7" width="7.8" height="21.1" rx=".9"/><rect x="74.6" y="202.7" width="7.8" height="21.1" rx=".9"/><rect x="104.6" y="202.7" width="7.8" height="21.1" rx=".9"/><rect x="134.6" y="202.7" width="7.8" height="21.1" rx=".9"/>
+      </g>
+      <g fill="var(--ink)"><circle cx="48.5" cy="187" r="1.1"/><circle cx="78.5" cy="187" r="1.1"/><circle cx="108.5" cy="187" r="1.1"/><circle cx="138.5" cy="187" r="1.1"/></g>
+    </symbol>
+    <symbol id="left-edge" viewBox="0 0 60 280">
+      <rect x="16" y="35" width="27.2" height="218" rx="2.4" fill="var(--device)" stroke="var(--ink)" stroke-width=".9"/>
+      <rect x="21.7" y="59.7" width="15.8" height="35.1" rx="3" fill="var(--side)" stroke="var(--ink)" stroke-width=".7"/>
+      <path d="M23.5 63.1h12.2v28.3H23.5Z" fill="var(--button)" stroke="var(--ink)" stroke-width=".65"/>
+      <path d="m23.5 63.1 1.1 6.1h10l1.1-6.1m-12.2 28.3 1.1-6.1h10l1.1 6.1" fill="var(--side)" stroke="var(--ink)" stroke-width=".65"/>
+      <circle cx="29.6" cy="127.4" r="1.45" fill="var(--ink)"/>
+    </symbol>
+    <symbol id="right-edge" viewBox="0 0 60 280">
+      <rect x="16" y="35" width="27.2" height="218" rx="2.4" fill="var(--side)" stroke="var(--ink)" stroke-width=".9"/>
+      <g fill="var(--button)" stroke="var(--ink)" stroke-width=".75"><rect x="23" y="57" width="13.2" height="35" rx="1.2"/><rect x="23" y="199" width="13.2" height="35" rx="1.2"/></g>
+      <circle cx="29.6" cy="114.4" r="1.6" fill="var(--ink)"/>
+      <g class="physical-status-leds" fill="var(--ink)"><circle cx="29.6" cy="126" r="1.1"/><circle cx="29.6" cy="133.1" r="1.1"/><circle cx="29.6" cy="140.2" r="1.1"/><circle cx="29.6" cy="147.3" r="1.1"/></g>
+    </symbol>
+    <symbol id="top-edge" viewBox="0 0 200 60">
+      <rect x="22" y="15" width="156" height="27.2" rx="2.4" fill="var(--device)" stroke="var(--ink)" stroke-width=".9"/>
+      <path d="M152.5 15h23.1a2.4 2.4 0 0 1 2.4 2.4v22.4a2.4 2.4 0 0 1-2.4 2.4h-23.1Z" fill="var(--side)" stroke="var(--ink)" stroke-width=".7"/>
+      <g fill="var(--button)" stroke="var(--ink)" stroke-width=".8"><circle cx="46.6" cy="28.6" r="7.5"/><circle cx="71.7" cy="28.6" r="7.5"/></g>
+      <g fill="var(--ink)"><circle cx="104.7" cy="26.1" r="1.35"/><circle cx="109.7" cy="26.1" r="1.35"/><circle cx="114.7" cy="26.1" r="1.35"/><circle cx="119.7" cy="26.1" r="1.35"/><circle cx="124.7" cy="26.1" r="1.35"/><circle cx="104.7" cy="31.1" r="1.35"/><circle cx="109.7" cy="31.1" r="1.35"/><circle cx="114.7" cy="31.1" r="1.35"/><circle cx="119.7" cy="31.1" r="1.35"/><circle cx="124.7" cy="31.1" r="1.35"/></g>
+    </symbol>
+    <symbol id="fader" viewBox="0 0 28 100"><rect x="11" y="12" width="6" height="76" rx="3" fill="var(--ink)"/></symbol>
+  </defs>
+</svg>
+<header class="masthead">
+  <a class="brand" href="./" aria-label="Bonsai 8 home">Bonsai 8</a>
+  <nav aria-label="Guide navigation"><a href="./">Open player</a><a href="./Bonsai-8-User-Manual.pdf" download>PDF manual</a></nav>
+</header>
+<main>
+  <div class="intro">
+    <div><p class="eyebrow">The illustrated guide</p><h1>Two songs.<br>Make them yours.</h1></div>
+    <p class="intro-copy">Get to know the controls. Build a mix, one stem at a time. Keep something you love. <span class="guide-version">For the effect-free 0.4.5 candidate. See the project hardware report for the installed version and current test results.</span></p>
+  </div>
+  <nav class="contents" aria-label="In this guide">
+    <a href="#know-your-player"><span>01</span> The player</a><a href="#start"><span>02</span> Start playing</a><a href="#choose"><span>03</span> Choose songs</a><a href="#mix"><span>04</span> Make a mix</a><a href="#shape"><span>05</span> Levels &amp; beat sync</a><a href="#clean-mix"><span>06</span> A clear mix</a><a href="#record"><span>07</span> Record</a><a href="#browser-mix"><span>08</span> Browser mixing</a><a href="#website"><span>09</span> Connect the player</a>
+  </nav>
+  <div class="gesture-key" aria-label="How to read the instructions"><p><strong>Tap</strong> Press briefly, then release.</p><p><strong>Hold</strong> Keep the button pressed.</p><p><strong>+</strong> Use these controls together.</p></div>
+  <div id="lessons">
+  <section class="lesson" id="know-your-player" aria-labelledby="player-title">
+    <div class="lesson-heading"><span class="number">01</span><h2 id="player-title">Find your way around.</h2></div>
+    <div class="device-views">
+      <figure><svg class="drawing" viewBox="0 0 430 355" role="img" aria-labelledby="front-title front-desc">
+        <title id="front-title">SP-1 front view with circular fader caps</title><desc id="front-desc">The front has four round fader caps, four stem lights and four rectangular stem buttons. Two shallow volume buttons sit on top. PLAY and FUNCTION protrude slightly from the right edge. The triangle and two dots are printed front markings, not the side status lights.</desc>
+        <use href="#player" x="91" y="20" width="224" height="313.6"/>
+        <text x="174" y="22" text-anchor="middle">Volume − / +</text><path class="leader" d="M174 29v25"/>
+        <text x="3" y="178">Round faders</text><path class="leader" d="M4 190h139"/>
+        <text x="3" y="258">Stem buttons</text><path class="leader" d="M4 270h139"/>
+        <text x="340" y="91">PLAY</text><path class="action" d="M348 103h-42" marker-end="url(#arrow)"/>
+        <text class="small" x="335" y="251">FUNCTION</text><path class="action" d="M348 263h-42" marker-end="url(#arrow)"/>
+        <g class="small" text-anchor="middle"><text x="145.3" y="295">1</text><text x="178.9" y="295">2</text><text x="212.5" y="295">3</text><text x="246.1" y="295">4</text></g>
+      </svg><figcaption>Front. The two dots beside FUNCTION are printed markings.</figcaption></figure>
+      <figure><svg class="drawing" viewBox="0 0 430 355" role="img" aria-labelledby="edges-title edges-desc">
+        <title id="edges-title">Left and right edges at the same scale</title><desc id="edges-desc">The left edge has one recessed wheel with a flat middle and angled shoulders, plus one small aperture below it. The right edge has PLAY at the top, FUNCTION at the bottom, one larger aperture and exactly four small status LEDs in between.</desc>
+        <use href="#left-edge" x="44" y="20" width="67.2" height="313.6"/><use href="#right-edge" x="250" y="20" width="67.2" height="313.6"/>
+        <text x="77" y="22" text-anchor="middle">Left edge</text><text x="283" y="22" text-anchor="middle">Right edge</text>
+        <path class="action" d="M153 109h-64" marker-end="url(#arrow)"/><text x="114" y="90">Wheel</text>
+        <text class="caption" x="113" y="160">Four status LEDs</text><path class="leader" d="M114 174h157"/>
+        <path class="action" d="M344 103h-48" marker-end="url(#arrow)"/><text x="347" y="106">PLAY</text>
+        <path class="action" d="M344 263h-48" marker-end="url(#arrow)"/><text class="small" x="333" y="247">FUNCTION</text>
+      </svg><figcaption>Side views. Four LEDs sit below the larger aperture on the right.</figcaption></figure>
+    </div>
+    <figure class="top-view"><svg class="drawing" viewBox="0 0 430 105" role="img" aria-labelledby="top-title top-desc"><title id="top-title">Two round volume buttons and a ten-hole grille on the top edge</title><desc id="top-desc">The volume buttons are shallow circular caps. The speaker grille has two rows of five holes.</desc><use href="#top-edge" x="90" y="16" width="250" height="75"/><text class="caption" x="215" y="12" text-anchor="middle">Top edge · shallow round volume buttons</text></svg></figure>
+    <div class="legend"><p><strong>Song</strong><span>A loaded piece of music, split into up to four stems.</span></p><p><strong>Stem</strong><span>One part: vocals, drums, bass or other instruments.</span></p><p><strong>Deck A / Deck B</strong><span>Two independent songs that can play together.</span></p><p><strong>Selected deck</strong><span>The deck your physical faders and buttons currently control.</span></p></div>
+  </section>
+  <section class="lesson" id="start" aria-labelledby="start-title">
+    <div class="lesson-heading"><span class="number">02</span><h2 id="start-title">Start with one song.</h2></div>
+    <div class="lesson-grid">
+      <figure><svg class="drawing" viewBox="0 0 430 310" role="img" aria-labelledby="power-title power-desc"><title id="power-title">Hold FUNCTION to power on, then tap PLAY</title><desc id="power-desc">The lower right-side FUNCTION button powers on after a 1.5 second hold. The upper right-side PLAY button starts or pauses the selected deck with a short tap.</desc><use href="#player" x="30" y="0" width="215" height="301"/><rect class="highlight" x="225" y="214" width="11" height="40" rx="2"/><path class="action" d="M290 235h-43" marker-end="url(#arrow)"/><text x="292" y="216">Hold FUNCTION</text><text class="caption" x="292" y="235">1.5 seconds</text><path class="action" d="M290 86h-43" marker-end="url(#arrow)"/><text x="292" y="71">Tap PLAY</text><text class="caption" x="292" y="91">Play / pause</text></svg></figure>
+      <div class="lesson-copy"><ol><li><strong>Hold FUNCTION for about 1.5 seconds</strong> to power on. Deck A is selected and paused.</li><li>Start with the master low. Move each fader to its top end, then lower it to the level you want.</li><li><strong>Tap and release PLAY.</strong> Tap again to pause the selected deck.</li></ol><p class="note">A tap is shorter than half a second. Holding PLAY for about half a second returns that song to the beginning, paused. Hold FUNCTION alone for 1.5 seconds to power off.</p></div>
+    </div>
+  </section>
+  <section class="lesson" id="choose" aria-labelledby="choose-title">
+    <div class="lesson-heading"><span class="number">03</span><h2 id="choose-title">Any song, on either deck.</h2></div>
+    <div class="lesson-grid">
+      <figure><svg class="drawing" viewBox="0 0 430 325" role="img" aria-labelledby="choose-svg-title choose-desc"><title id="choose-svg-title">Switch decks with FUNCTION; browse songs with FUNCTION and the rocker</title><desc id="choose-desc">A short FUNCTION tap changes the selected deck from A to B. Hold FUNCTION while tapping the rocker to browse every occupied song on that deck. The other deck keeps playing.</desc><use href="#player" x="137" y="23" width="190" height="266"/><rect class="highlight" x="158" y="83" width="10" height="37" rx="2"/><rect class="highlight" x="309" y="210" width="10" height="38" rx="2"/><path class="action" d="M111 74v58" marker-start="url(#arrow)" marker-end="url(#arrow)"/><path class="leader" d="M115 102h34"/><text x="23" y="55">Tap rocker</text><text class="caption" x="23" y="155">Previous / next</text><path class="action" d="M367 229h-37" marker-end="url(#arrow)"/><text x="323" y="270">Hold FUNCTION</text><text class="large" x="45" y="229">A</text><path class="action" d="M65 224h33" marker-start="url(#arrow)" marker-end="url(#arrow)"/><text class="large" x="108" y="229">B</text><text class="caption" x="30" y="250">Tap FUNCTION to switch</text><text class="small" x="228" y="314" text-anchor="middle">Browse all occupied slots. Empty slots are skipped.</text></svg></figure>
+      <div class="lesson-copy"><ol><li><strong>Tap FUNCTION</strong> to choose A or B. Its outside status light tells you which deck is selected.</li><li><strong>Hold FUNCTION, then tap the rocker</strong> to move to the previous or next loaded song. Repeat until you find one.</li><li>Release both controls. The new song is at its beginning, paused. <strong>Tap PLAY to bring it in.</strong></li></ol><p class="note">Change B while A plays, or A while B plays. Loading a song keeps that deck’s existing levels, mutes and speed.</p><div class="led-key" aria-label="Normal side status light meanings"><div><i></i><b>1</b>A selected</div><div><i></i><b>2</b>A playing</div><div><i></i><b>3</b>B playing</div><div><i></i><b>4</b>B selected</div></div></div>
+    </div>
+  </section>
+  <section class="lesson" id="mix" aria-labelledby="mix-title">
+    <div class="lesson-heading"><span class="number">04</span><h2 id="mix-title">Vocals from B. Instruments from A.</h2></div>
+    <div class="lesson-grid">
+      <figure><svg class="drawing" viewBox="0 0 430 330" role="img" aria-labelledby="mix-svg-title mix-desc"><title id="mix-svg-title">A two-song mix: three instrumental stems on A, one vocal stem on B</title><desc id="mix-desc">Deck A plays drums, bass and other instruments; its vocal is muted. Deck B plays only its vocal; the other three stems are muted. Each deck keeps its levels when you switch to the other.</desc><text class="large" x="55" y="30">A</text><text class="caption" x="78" y="28">Song 1</text><text class="large" x="258" y="30">B</text><text class="caption" x="282" y="28">Song 2</text><path class="panel" d="M26 47h168v202H26ZM230 47h168v202H230Z"/>
+        <g transform="translate(41 68)"><use href="#fader" width="28" height="120"/><use href="#fader" x="37" width="28" height="120"/><use href="#fader" x="74" width="28" height="120"/><use href="#fader" x="111" width="28" height="120"/><circle class="quiet" cx="14" cy="103" r="3.2"/><circle class="accent" cx="51" cy="47" r="3.2"/><circle class="accent" cx="88" cy="57" r="3.2"/><circle class="accent" cx="125" cy="39" r="3.2"/><text class="tiny" x="14" y="145" text-anchor="middle">VOCAL</text><text class="tiny" x="51" y="145" text-anchor="middle">DRUM</text><text class="tiny" x="88" y="145" text-anchor="middle">BASS</text><text class="tiny" x="125" y="145" text-anchor="middle">OTHER</text><circle class="led-off" cx="14" cy="163" r="3"/><circle class="led-on" cx="51" cy="163" r="3"/><circle class="led-on" cx="88" cy="163" r="3"/><circle class="led-on" cx="125" cy="163" r="3"/></g>
+        <g transform="translate(245 68)"><use href="#fader" width="28" height="120"/><use href="#fader" x="37" width="28" height="120"/><use href="#fader" x="74" width="28" height="120"/><use href="#fader" x="111" width="28" height="120"/><circle class="accent" cx="14" cy="43" r="3.2"/><circle class="quiet" cx="51" cy="103" r="3.2"/><circle class="quiet" cx="88" cy="103" r="3.2"/><circle class="quiet" cx="125" cy="103" r="3.2"/><text class="tiny" x="14" y="145" text-anchor="middle">VOCAL</text><text class="tiny" x="51" y="145" text-anchor="middle">DRUM</text><text class="tiny" x="88" y="145" text-anchor="middle">BASS</text><text class="tiny" x="125" y="145" text-anchor="middle">OTHER</text><circle class="led-on" cx="14" cy="163" r="3"/><circle class="led-off" cx="51" cy="163" r="3"/><circle class="led-off" cx="88" cy="163" r="3"/><circle class="led-off" cx="125" cy="163" r="3"/></g>
+        <path class="action" d="M111 262v21h207v-21M215 283v22" marker-end="url(#arrow)"/><text class="caption" x="215" y="326" text-anchor="middle">One combined stereo mix</text>
+      </svg><figcaption>With the site’s usual stem order: 1 vocals, 2 drums, 3 bass, 4 other.</figcaption></figure>
+      <div class="lesson-copy"><ol><li>On <strong>A</strong>, choose your instrumental song. Mute stem 1 with its button. Set faders 2–4, then tap PLAY.</li><li>Tap FUNCTION to select <strong>B</strong>. Choose your vocal song. Move all four faders to minimum, then raise only fader 1 and make sure it is unmuted. Keep stems 2–4 muted.</li><li>Tap PLAY when you want the vocal to enter. Balance it with fader 1. Switch back to A to adjust the instruments.</li></ol><p class="note">Check mutes before playing: a stem button toggles its state. Start the second song by ear, then teach both beat grids before using live sync. Musical keys are not matched.</p><div class="two-decks"><div class="deck-note"><h3>Pause one deck</h3><p>Select it, then tap PLAY.</p></div><div class="deck-note"><h3>Pause both</h3><p>While both play, hold FUNCTION and tap PLAY.</p></div></div></div>
+    </div>
+  </section>
+  <section class="lesson" id="shape" aria-labelledby="shape-title">
+    <div class="lesson-heading"><span class="number">05</span><h2 id="shape-title">Balance it. Find the beat.</h2></div>
+    <div class="lesson-grid">
+      <figure><svg class="drawing" viewBox="0 0 430 300" role="img" aria-labelledby="levels-title levels-desc"><title id="levels-title">Faders change individual stem levels; the rocker changes tempo while preserving pitch</title><desc id="levels-desc">After changing decks, move a fader through its saved position to take control. Moving the rocker without FUNCTION changes the selected deck’s tempo while preserving pitch and exits sync.</desc><text x="56" y="27">Pick up the saved level</text><use href="#fader" x="88" y="47" width="44" height="164"/><circle cx="110" cy="91" r="4.7" fill="none" stroke="var(--red)" stroke-dasharray="3 2"/><circle class="quiet" cx="110" cy="177" r="4.7"/><path class="action" d="M76 177V91" marker-end="url(#arrow)"/><path class="leader" d="M128 91h43"/><text class="caption" x="174" y="95">Saved</text><text class="caption" x="50" y="236">Cross it to take control.</text><use href="#left-edge" x="264" y="4" width="51" height="238"/><path class="action" d="M326 97V58" marker-end="url(#arrow)"/><text class="caption" x="305" y="37" text-anchor="middle">Rocker alone</text><text class="caption" x="305" y="257" text-anchor="middle">Faster / slower tempo</text><text class="caption" x="305" y="275" text-anchor="middle">Pitch stays the same</text></svg></figure>
+      <div class="lesson-copy"><p><strong>Faders control one stem each.</strong> After switching decks, cross its saved level to take control. Tap a track button to mute; hold it to solo until released.</p><ol><li>While A plays, <strong>hold FUNCTION and tap Track 1 on four or more quarter beats</strong>. Repeat on B. You teach the beat; there is no automatic BPM detection.</li><li>With both playing, select the follower. <strong>FUNCTION + Track 2</strong> syncs it to the other deck while preserving pitch.</li><li>Hold <strong>FUNCTION + Track 3 and tap the rocker</strong> to nudge the follower’s beat phase.</li></ol><p><strong>Rocker alone:</strong> manual pitch-preserving tempo, leaving sync. <strong>FUNCTION + rocker:</strong> browse songs as before. Volume + / − controls the combined master.</p><p class="note">The live site shows source BPM, tap progress and sync state. Grids reset on song load or cue and are not saved across power-off. This candidate still needs hardware validation; wide tempo changes can blur or repeat transients. No live key matching or separate physical stem-pitch control.</p></div>
+    </div>
+  </section>
+  <section class="lesson" id="clean-mix" aria-labelledby="clean-mix-title">
+    <div class="lesson-heading"><span class="number">06</span><h2 id="clean-mix-title">Leave room for the next sound.</h2></div>
+    <div class="lesson-grid">
+      <figure><svg class="drawing" viewBox="0 0 430 290" role="img" aria-labelledby="balance-title balance-desc"><title id="balance-title">Balance instruments on Deck A with one vocal on Deck B</title><desc id="balance-desc">A schematic level example: A has its vocal down and moderate drums, bass and other stems. B has its vocal raised and its other three stems down. Add the parts you want instead of raising every stem. The master volume controls the combined result.</desc><text x="116" y="30" text-anchor="middle">A · Instruments</text><text x="328" y="30" text-anchor="middle">B · Vocal</text><use href="#fader" x="33" y="43" width="40" height="140"/><use href="#fader" x="75" y="43" width="40" height="140"/><use href="#fader" x="117" y="43" width="40" height="140"/><use href="#fader" x="159" y="43" width="40" height="140"/><use href="#fader" x="245" y="43" width="40" height="140"/><use href="#fader" x="287" y="43" width="40" height="140"/><use href="#fader" x="329" y="43" width="40" height="140"/><use href="#fader" x="371" y="43" width="40" height="140"/><g fill="var(--button)" stroke="var(--ink)" stroke-width=".9"><circle cx="53" cy="162" r="4.7"/><circle cx="95" cy="104" r="4.7"/><circle cx="137" cy="119" r="4.7"/><circle cx="179" cy="111" r="4.7"/><circle cx="265" cy="104" r="4.7"/><circle cx="307" cy="162" r="4.7"/><circle cx="349" cy="162" r="4.7"/><circle cx="391" cy="162" r="4.7"/></g><g class="caption" text-anchor="middle"><text x="53" y="200">1</text><text x="95" y="200">2</text><text x="137" y="200">3</text><text x="179" y="200">4</text><text x="265" y="200">1</text><text x="307" y="200">2</text><text x="349" y="200">3</text><text x="391" y="200">4</text></g><path class="leader" d="M53 217h126m86 0h126"/><text class="caption" x="215" y="255" text-anchor="middle">Start low. Bring in one part at a time.</text></svg><figcaption>A level example, not a required setting. Listen and adjust for your songs.</figcaption></figure>
+      <div class="lesson-copy"><ol><li>Start with one deck at moderate levels. <strong>Bring in only the stems you want</strong> from the second song.</li><li>If two parts compete, lower one before raising the other. Two drum patterns or bass lines can clash even when playback is smooth.</li><li><strong>Use the volume buttons for the combined listening level.</strong> If the mix distorts, lower stem levels and master volume.</li></ol><p class="note">The 0.4.5 candidate has no effects: Filter, Echo and Reverb are removed. Faders control stem volume. There is no effect-editing gesture or effect-choice light pattern.</p><p>Before recording, check both decks and the master level. The recording captures their combined output, so a quiet master makes a quiet take.</p></div>
+    </div>
+  </section>
+  <section class="lesson" id="record" aria-labelledby="record-title">
+    <div class="lesson-heading"><span class="number">07</span><h2 id="record-title">Keep the mix.</h2></div>
+    <div class="lesson-grid">
+      <figure><svg class="drawing" viewBox="0 0 430 340" role="img" aria-labelledby="record-svg-title record-desc"><title id="record-svg-title">Record, stop, pause both decks, then wait for saving</title><desc id="record-desc">Hold FUNCTION and both volume buttons for one second to start or stop recording. Slow blinking status lights mean recording. Fast blinking means draining or waiting to save. Pause both decks and wait for the normal lights to return. The saved stereo mix uses stem 1 of a new song slot.</desc><use href="#player" x="122" y="6" width="200" height="280"/><rect class="highlight" x="168" y="38" width="43" height="7" rx="2"/><rect class="highlight" x="303" y="204" width="10" height="40" rx="2"/><text class="caption" x="189" y="13" text-anchor="middle">Hold both volume buttons</text><path class="action" d="M189 22v7" marker-end="url(#arrow)"/><path class="action" d="M365 225h-40" marker-end="url(#arrow)"/><text class="caption" x="326" y="203">+ FUNCTION</text><text class="caption" x="326" y="247">1 second</text><text class="caption" x="26" y="165">Slow blink</text><text class="red-text" x="26" y="185">Recording</text><circle class="led-on" cx="26" cy="141" r="2.3"/><circle class="led-on" cx="39" cy="141" r="2.3"/><circle class="led-on" cx="52" cy="141" r="2.3"/><circle class="led-on" cx="65" cy="141" r="2.3"/><path class="action" d="M58 306h70m63 0h70m66 0h51" marker-end="url(#arrow)"/><text class="small" x="26" y="327">RECORD</text><text class="small" x="140" y="327">STOP</text><text class="small" x="239" y="327">PAUSE BOTH</text><text class="small" x="371" y="327">SAVE</text></svg></figure>
+      <div class="lesson-copy"><ol><li>Start your mix. <strong>Hold FUNCTION and both volume buttons for one second</strong>, then fully release FUNCTION and both volume buttons. Slowly blinking side lights mean recording.</li><li>Perform your mix. After fully releasing the first gesture, use the same combination again to stop.</li><li><strong>Pause both decks.</strong> If both are playing, FUNCTION + PLAY pauses both. Otherwise select and pause the one still playing.</li><li>Keep the player powered while it saves. <strong>Wait for the normal deck lights to return.</strong></li></ol><p>The take becomes a new song in the first empty slot. Its whole stereo mix is on <strong>stem 1</strong>. Connect later to export it from the site.</p><p class="note">You need an empty slot. Maximum take: about eight minutes. Fast blinking means draining or waiting to save; blinking outer lights indicate failure. Song changes are blocked until recording and saving finish.</p><p class="note">Historical 0.4.4 evidence is one non-silent 3.17-second take saved as Song 5 and exported. That does not verify longer takes or recording under combined USB load; see the project hardware report for subsequent tests.</p></div>
+    </div>
+  </section>
+  <section class="lesson" id="browser-mix" aria-labelledby="browser-mix-title">
+    <div class="lesson-heading"><span class="number">08</span><h2 id="browser-mix-title">Two decks in your browser.</h2></div>
+    <div class="two-decks"><div class="deck-note"><h3>Deck A</h3><p>Choose A under <strong>Load music</strong>, then import a song or stems. Its song selector keeps the music loaded in this tab.</p></div><div class="deck-note"><h3>Deck B</h3><p>Choose B and add a different song. Each deck has its own Play, Cue and level. Select a deck to adjust its four stems below.</p></div></div>
+    <ol class="steps"><li>Open <strong>Match songs</strong> and choose the master deck. Analyze both songs, then check their BPM, first beat and key.</li><li>Choose tempo matching, optional key matching and any individual stem pitch offsets. <strong>Prepare</strong> makes a new set of stems while keeping the originals.</li><li>Choose <strong>Align on next beat</strong> to align the browser grids. Listen and correct them if necessary. Export the prepared stems or upload them into an empty player slot.</li></ol>
+    <p class="note">Matching prepares audio in the browser. Browser key and stem-pitch preparation is separate from the player’s tapped-grid beat sync. After uploading, teach the physical song’s beat grid again; browser grids are not transferred. A fixed grid cannot follow tempo changes, and pitch processing can change vocal tone or soften transients. The full manual explains the controls and limits.</p>
+  </section>
+  <section class="lesson" id="website" aria-labelledby="website-title">
+    <div class="lesson-heading"><span class="number">09</span><h2 id="website-title">Your player. A bigger view.</h2></div>
+    <div class="lesson-grid">
+      <figure><svg class="drawing" viewBox="0 0 430 310" role="img" aria-labelledby="site-svg-title site-desc"><title id="site-svg-title">Connect the physical player to the Bonsai 8 companion site</title><desc id="site-desc">A USB data cable connects the powered-on SP-1 to a computer. The companion site mirrors controls and lights, displays deck timers, monitors USB audio, and manages songs. Firmware installation is a separate bootloader workflow.</desc><use href="#player" x="4" y="73" width="122" height="171"/><rect class="line" x="37" y="225" width="12" height="5" rx="1"/><path class="line" d="M43 230v29q0 11 11 11h76q11 0 11-11v-80q0-11 11-11h2"/><path class="action" d="M95 270h30" marker-end="url(#arrow)"/><rect class="line" x="154" y="72" width="246" height="171" rx="4"/><path class="line" d="M154 99h246m-145 144v18m45-18v18m-71 0h97"/><circle cx="166" cy="85" r="2" fill="var(--ink)"/><text class="small" x="177" y="89">Bonsai 8</text><text class="caption" x="171" y="126">A · Song 1</text><text class="caption" x="292" y="126">B · Song 2</text><path class="panel" d="M171 139h97m24 0h90"/><path class="action" d="M172 139h33m88 0h25"/><path class="line" d="M172 172h10l4-7 5 18 5-26 5 20 5-5h12l4-11 5 28 5-21 5 4h11l5-14 5 25 5-11h12l5-5 4 12 5-7h11l5-16 5 30 5-14h11l5-8 5 15 5-7h18"/><path class="panel" d="M171 205h63v20h-63Zm73 0h63v20h-63Zm73 0h66v20h-66Z"/><text class="tiny" x="202" y="218" text-anchor="middle">LOAD A / B</text><text class="tiny" x="275" y="218" text-anchor="middle">EXPORT</text><text class="tiny" x="349" y="218" text-anchor="middle">DELETE</text><text class="caption" x="80" y="300" text-anchor="middle">USB data cable</text></svg><figcaption>Schematic view. The website is the companion; the firmware runs inside your SP-1.</figcaption></figure>
+      <div class="lesson-copy"><ol><li>On a computer, open the <a href="./">Bonsai 8 site</a> in a browser with Web Serial support, such as desktop Chrome or Edge.</li><li>Power on the player normally and connect a USB data cable. Choose <strong>Connect SP-1</strong>, then the Bonsai 8 / Dual Deck mode and your device.</li><li>Play on the physical player. Watch the mirrored controls, lights and deck timers. Choose <strong>Listen here</strong> to monitor its USB mix when a compatible player audio input is available.</li></ol><div class="two-decks"><div class="deck-note"><h3>Manage songs</h3><p>Use <strong>On your player</strong> to load either deck, export a song or delete its slot. Prepare stems on the site, then upload into an empty slot.</p></div><div class="deck-note"><h3>Install firmware</h3><p>Choose <strong>Install Bonsai 8</strong> in the site footer. Follow the updater’s bootloader steps. Wait for completion before unplugging.</p></div></div><p class="note">The connected model mirrors the hardware; its local mixer does not remotely control physical levels. Uploads and transfers pause playback. Browsers without Web Serial, including most mobile browsers, can read this guide but cannot connect or flash the player.</p></div>
+    </div>
+  </section>
+  </div>
+  <section class="closing" aria-label="More help and version information">
+    <div><h2>Keep the full guide nearby.</h2><p>Find the complete control reference, light patterns, connection help and troubleshooting in the manual.</p><a href="./Bonsai-8-User-Manual.pdf" download>Download the PDF manual</a><a href="#know-your-player">Back to the controls</a></div>
+    <div><h2>About these instructions.</h2><p>For the Bonsai 8 effect-free 0.4.5 candidate and companion site. See HARDWARE_TEST.md in the project repository for the current installed version and hardware test results. Its tapped-grid live sync and pitch-preserving tempo controls still need validation; wider tempo changes can produce transient artifacts. This is not a completed release. In historical 0.4.4 tests, eight-stem playback, USB audio alone and mirroring alone passed short tests, but USB audio with mirroring caused dropouts. Removing effects and changing USB response handling still need hardware verification. Read the exact version and test status in the installer. Opening the site does not update your player.</p></div>
+  </section>
+</main>
+<footer class="footer"><span>Bonsai 8 · Illustrated user guide</span><a class="return-link" href="./">Back to the player</a></footer>
+</body>
+</html>

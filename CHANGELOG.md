@@ -1,5 +1,17 @@
 # Changelog
 
+## Bonsai 8 0.4.5 — hardware-test candidate, 3 October 2026
+
+- Remove all effects and filters at the owner's request.
+- Batch USB control transmission with bounded queues, partial-write handling and reconnect/session isolation. Preserve physical button and light events while the host is busy.
+- Require complete FUNCTION/volume release before a recording shortcut can toggle again.
+- Reject site song-load replies for the wrong deck or slot; clear stale recording UI after a reported recording failure.
+- Add streamed pitch-preserving tempo, user-tapped source grids, selected-deck beat following and rocker phase nudges. Correlation planning runs in bounded storage-thread work outside the audio callback.
+- Show selected-deck BPM and sync state beside live audio on the site; update the guide and manual with the new controls.
+- Candidate status and exact host/device results are recorded in HARDWARE_TEST.md. Wide tempo changes can repeat or smear transients; no automatic BPM detection or key matching is claimed.
+
+For version-specific hardware evidence, see [HARDWARE_TEST.md](HARDWARE_TEST.md). The history below belongs to the upstream Tape Looper project; its features and test claims are not Bonsai 8 release claims.
+
 All notable changes to the SP-1 Tape Looper.
 Versions 1.0.0-1.2.4 below were the 2.0 development line (developed as a
 fork by marc, never announced) — kept for the honest record. The classic

@@ -21,3 +21,8 @@ jobs:
           .build-env/python/bin/pip install pyserial==3.5
       - name: Run C sanitizers and transfer tests
         run: ./tools/test.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test companion website
+        run: npm test --prefix site

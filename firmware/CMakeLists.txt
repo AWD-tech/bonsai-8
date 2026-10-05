@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-project(sp1-dual-deck)
+project(bonsai-8)
 include(${ZEPHYR_BASE}/samples/subsys/usb/common/common.cmake)
-target_sources(app PRIVATE src/main.c src/sp1_emmc.c src/dual_engine.c src/dual_mirror.c src/dual_capture.c)
+target_sources(app PRIVATE src/main.c src/sp1_emmc.c src/dual_engine.c src/dual_mirror.c src/dual_capture.c src/bonsai_record.c src/bonsai_library.c src/bonsai_cdc.c src/bonsai_sync.c src/bonsai_stretch.c)
 
 # -fno-strict-aliasing: the firmware type-puns static uint8_t[] storage through
 # int16_t* / struct* lvalues (the batchbuf copies and the meta-block cast). This
@@ -17,4 +17,4 @@ target_compile_options(app PRIVATE -fno-strict-aliasing)
 # eMMC driver stays at the global -Os, where the write timing is correct.
 
 target_compile_definitions(app PRIVATE SP1_DUAL_DECK=1)
-set_source_files_properties(src/dual_engine.c PROPERTIES COMPILE_OPTIONS "-O2")
+set_source_files_properties(src/dual_engine.c src/bonsai_record.c src/bonsai_stretch.c PROPERTIES COMPILE_OPTIONS "-O2")

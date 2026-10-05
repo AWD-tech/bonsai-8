@@ -1,0 +1,590 @@
+{
+  "note": "80 focused assignments use reusable workers because the environment limits concurrent and total agent threads. Host passes do not imply hardware completion.",
+  "assignments": [
+    {
+      "id": 1,
+      "owner": "controls",
+      "task": "Physical library cursor and modifier-release regressions",
+      "state": "host-pass; hardware pending"
+    },
+    {
+      "id": 2,
+      "owner": "audio",
+      "task": "SFX quality and MCU deadline correction",
+      "state": "all effects removed in0.4.5; bounded CDC and pitch-preserving engine integration; final host/ARM and hardware gates pending"
+    },
+    {
+      "id": 3,
+      "owner": "architecture",
+      "task": "Feasibility, safe metadata and measured geometry design",
+      "state": "design complete"
+    },
+    {
+      "id": 4,
+      "owner": "browser",
+      "task": "Independent A/B loading",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 5,
+      "owner": "browser",
+      "task": "Independent transports",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 6,
+      "owner": "browser",
+      "task": "Seek and cue",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 7,
+      "owner": "browser",
+      "task": "Eight stem gains",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 8,
+      "owner": "browser",
+      "task": "Mute and solo",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 9,
+      "owner": "browser",
+      "task": "Deck volume",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 10,
+      "owner": "browser",
+      "task": "Combined headroom",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 11,
+      "owner": "browser",
+      "task": "Transport timing",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 12,
+      "owner": "browser",
+      "task": "Load B while A plays",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 13,
+      "owner": "browser",
+      "task": "Session library selection",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 14,
+      "owner": "browser",
+      "task": "Two-song demo",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 15,
+      "owner": "browser",
+      "task": "Unload and disconnect behavior",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 16,
+      "owner": "browser",
+      "task": "Keyboard and accessibility",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 17,
+      "owner": "browser",
+      "task": "Mobile mixer layout",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 18,
+      "owner": "browser",
+      "task": "Audio/state regression tests",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 19,
+      "owner": "browser",
+      "task": "Connected-mode isolation",
+      "state": "implemented; host-pass; generated-signal/browser UI evidence with limits",
+      "evidence": "site/tests/TWO_DECK_VERIFICATION.md"
+    },
+    {
+      "id": 20,
+      "owner": "library-and-flash",
+      "task": "Content-bound persistent title registry",
+      "state": "future-identity registry host-pass; durable device identity unavailable, connection-local fallback active"
+    },
+    {
+      "id": 21,
+      "owner": "library-and-flash",
+      "task": "Stale slot-title rejection",
+      "state": "implemented and host-pass; current firmware titles are connection-local, durable identity pending"
+    },
+    {
+      "id": 22,
+      "owner": "library-and-flash",
+      "task": "Unknown title fallback",
+      "state": "implemented and host-pass; current firmware titles are connection-local, durable identity pending"
+    },
+    {
+      "id": 23,
+      "owner": "library-and-flash",
+      "task": "Reconnect metadata rules",
+      "state": "host-pass; current firmware reconnect discards untrusted names and uses Song N"
+    },
+    {
+      "id": 24,
+      "owner": "library-and-flash",
+      "task": "Confirmed deletion clears title",
+      "state": "implemented and host-pass; current firmware titles are connection-local, durable identity pending"
+    },
+    {
+      "id": 25,
+      "owner": "library-and-flash",
+      "task": "Confirmed upload remembers filename",
+      "state": "implemented and host-pass; current firmware titles are connection-local, durable identity pending"
+    },
+    {
+      "id": 26,
+      "owner": "library-and-flash",
+      "task": "Recording/export naming",
+      "state": "implemented and host-pass; current firmware titles are connection-local, durable identity pending"
+    },
+    {
+      "id": 27,
+      "owner": "library-and-flash",
+      "task": "Library title display",
+      "state": "implemented and host-pass; current firmware titles are connection-local, durable identity pending"
+    },
+    {
+      "id": 28,
+      "owner": "library-and-flash",
+      "task": "Missing telemetry fail-closed behavior",
+      "state": "implemented and host-pass; current firmware titles are connection-local, durable identity pending"
+    },
+    {
+      "id": 29,
+      "owner": "library-and-flash",
+      "task": "Application-only flash bounds",
+      "state": "implemented and host-pass; browser flasher hardware gate pending"
+    },
+    {
+      "id": 30,
+      "owner": "library-and-flash",
+      "task": "Bootloader CRC and binary hash",
+      "state": "implemented and host-pass; browser flasher hardware gate pending"
+    },
+    {
+      "id": 31,
+      "owner": "library-and-flash",
+      "task": "No flasher formatting path",
+      "state": "implemented and host-pass; browser flasher hardware gate pending"
+    },
+    {
+      "id": 32,
+      "owner": "library-and-flash",
+      "task": "Version and artifact consistency",
+      "state": "implemented and host-pass; browser flasher hardware gate pending"
+    },
+    {
+      "id": 33,
+      "owner": "library-and-flash",
+      "task": "Song preservation and stock compatibility text",
+      "state": "implemented and host-pass; browser flasher hardware gate pending"
+    },
+    {
+      "id": 34,
+      "owner": "library-and-flash",
+      "task": "Flash failure/reconnect tests",
+      "state": "implemented and host-pass; browser flasher hardware gate pending"
+    },
+    {
+      "id": 35,
+      "owner": "library-and-flash",
+      "task": "Title lifecycle regressions",
+      "state": "implemented and host-pass; current firmware titles are connection-local, durable identity pending"
+    },
+    {
+      "id": 36,
+      "owner": "audio",
+      "task": "Hot-input saturation",
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
+    },
+    {
+      "id": 37,
+      "owner": "audio",
+      "task": "Reverb internal headroom",
+      "state": "retired from 0.4.4 scope by explicit user choice: Reverb removed; historical work retained"
+    },
+    {
+      "id": 38,
+      "owner": "audio",
+      "task": "Wet decimation alias rejection",
+      "state": "retired from 0.4.4 scope by explicit user choice: Echo/Reverb wet decimation removed"
+    },
+    {
+      "id": 39,
+      "owner": "audio",
+      "task": "Filter coefficient ramp",
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
+    },
+    {
+      "id": 40,
+      "owner": "audio",
+      "task": "Exact bypass",
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
+    },
+    {
+      "id": 41,
+      "owner": "audio",
+      "task": "Effect persistence",
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
+    },
+    {
+      "id": 42,
+      "owner": "audio",
+      "task": "Eight independent filter states",
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
+    },
+    {
+      "id": 43,
+      "owner": "audio",
+      "task": "Stereo dry image",
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
+    },
+    {
+      "id": 44,
+      "owner": "audio",
+      "task": "Bounded wet energy",
+      "state": "retired Echo/Reverb wet-path requirement for 0.4.4; retained high-pass headroom checked under hot-input saturation task"
+    },
+    {
+      "id": 45,
+      "owner": "audio",
+      "task": "Steady 1x cost",
+      "state": "0.4.4 filter-only verification pending; earlier three-effect measurements are not current-candidate evidence"
+    },
+    {
+      "id": 46,
+      "owner": "audio",
+      "task": "1.25x cost",
+      "state": "0.4.4 filter-only verification pending; earlier three-effect measurements are not current-candidate evidence"
+    },
+    {
+      "id": 47,
+      "owner": "audio",
+      "task": "Transition cost",
+      "state": "0.4.4 filter-only verification pending; earlier three-effect measurements are not current-candidate evidence"
+    },
+    {
+      "id": 48,
+      "owner": "audio",
+      "task": "Scalar/buffer differential",
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
+    },
+    {
+      "id": 49,
+      "owner": "audio",
+      "task": "Sanitizer stress",
+      "state": "0.4.4 filter-only host sanitizer pass; hardware test pending"
+    },
+    {
+      "id": 50,
+      "owner": "audio",
+      "task": "RAM and stack accounting",
+      "state": "0.4.4 ARM build: RAM 230772/262144, 17272 bytes below 0.4.3; thread stack high-water mark unmeasured"
+    },
+    {
+      "id": 51,
+      "owner": "audio",
+      "task": "MCU budget and worst-workload measurements",
+      "state": "0.4.4 filter-only flashed and runtime verified; hardware performance pending; 0.4.2 USB failure is historical"
+    },
+    {
+      "id": 52,
+      "owner": "release-and-hardware",
+      "task": "Evidence-gated release tooling",
+      "state": "host-pass"
+    },
+    {
+      "id": 53,
+      "owner": "release-and-hardware",
+      "task": "Reject falsified PASS/counters",
+      "state": "host-pass"
+    },
+    {
+      "id": 54,
+      "owner": "release-and-hardware",
+      "task": "Reject intermediate control changes",
+      "state": "host-pass"
+    },
+    {
+      "id": 55,
+      "owner": "release-and-hardware",
+      "task": "Version and minimum-time gate",
+      "state": "host-pass"
+    },
+    {
+      "id": 56,
+      "owner": "release-and-hardware",
+      "task": "Actual requested-effect gate",
+      "state": "earlier gate host-pass; 0.4.4 supported-filter-only gate adaptation in progress under root"
+    },
+    {
+      "id": 57,
+      "owner": "release-and-hardware",
+      "task": "Actual USB capture/mirroring gate",
+      "state": "host-pass"
+    },
+    {
+      "id": 58,
+      "owner": "release-and-hardware",
+      "task": "Library preservation gate",
+      "state": "host-pass"
+    },
+    {
+      "id": 59,
+      "owner": "release-and-hardware",
+      "task": "Flashed hash/vector bounds gate",
+      "state": "implementation; tests pending"
+    },
+    {
+      "id": 60,
+      "owner": "release-and-hardware",
+      "task": "Immutable versioned staging",
+      "state": "implementation; tests pending"
+    },
+    {
+      "id": 61,
+      "owner": "release-and-hardware",
+      "task": "Standing repository/PR/site policy",
+      "state": "documented"
+    },
+    {
+      "id": 62,
+      "owner": "release-and-hardware",
+      "task": "0.4.4 application flash and version/index check",
+      "state": "device-pass for installation/runtime/filter capability/index only; no flash or audio readback"
+    },
+    {
+      "id": 63,
+      "owner": "release-and-hardware",
+      "task": "All-eight dry playback",
+      "state": "0.4.4 all-eight dry20.054s device-pass",
+      "evidence": "hardware-tests/bonsai-0.4.4-eight-dry.json"
+    },
+    {
+      "id": 64,
+      "owner": "release-and-hardware",
+      "task": "Full filter playback",
+      "state": "0.4.4 all-eight full high-pass filter gate pending; historical 0.4.2 two-filter20.066-second pass only",
+      "evidence": "hardware-tests/bonsai-0.4.2-eight-filters-current.json"
+    },
+    {
+      "id": 65,
+      "owner": "release-and-hardware",
+      "task": "Echo/reverb audible and deadline test",
+      "state": "retired from 0.4.4 scope by explicit user choice: Echo/Reverb removed; earlier reported failures remain historical"
+    },
+    {
+      "id": 66,
+      "owner": "release-and-hardware",
+      "task": "USB audio and mirroring maximum load",
+      "state": "0.4.4 all eight dry stems + USB capture/mirror: +225/+241 underruns in20.063s; filters bypassed, stable controls",
+      "evidence": "hardware-tests/bonsai-0.4.4-eight-usb-dry.json"
+    },
+    {
+      "id": 67,
+      "owner": "release-and-hardware",
+      "task": "Offline recording/save/reboot/export",
+      "state": "pending; filter-only scope does not close recording/save/reboot/export hardware gate"
+    },
+    {
+      "id": 68,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Beat/BPM analysis with confidence",
+      "state": "implemented browser preparation; host-pass; synthetic-demo browser evidence",
+      "evidence": "site/tests/match-validation.md"
+    },
+    {
+      "id": 69,
+      "owner": "sync-pitch-and-geometry",
+      "task": "User-correctable beat grid",
+      "state": "implemented browser preparation; host-pass; synthetic-demo browser evidence",
+      "evidence": "site/tests/match-validation.md"
+    },
+    {
+      "id": 70,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Key estimation with confidence",
+      "state": "implemented browser preparation; host-pass; synthetic-demo browser evidence",
+      "evidence": "site/tests/match-validation.md"
+    },
+    {
+      "id": 71,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Master-deck selection",
+      "state": "implemented browser preparation; host-pass; synthetic-demo browser evidence",
+      "evidence": "site/tests/match-validation.md"
+    },
+    {
+      "id": 72,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Real independent pitch preserving duration",
+      "state": "implemented browser preparation; host-pass; synthetic-demo browser evidence",
+      "evidence": "site/tests/match-validation.md"
+    },
+    {
+      "id": 73,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Stereo and transient pitch verification",
+      "state": "host synthetic pitch/stereo/transient regressions pass; arbitrary-song quality unverified",
+      "evidence": "site/tests/match-validation.md"
+    },
+    {
+      "id": 74,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Tempo stretch preserving pitch",
+      "state": "implemented browser preparation; host-pass; synthetic-demo browser evidence",
+      "evidence": "site/tests/match-validation.md"
+    },
+    {
+      "id": 75,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Sample-clock beat alignment",
+      "state": "sample-clock first-beat launch implemented and browser-tested; no continuing beat lock",
+      "evidence": "site/tests/match-validation.md"
+    },
+    {
+      "id": 76,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Prepared matched-stem export/upload",
+      "state": "synthetic-demo real browser WAV ZIP export passed; simulated device upload pass; physical prepared-song upload/playback unverified",
+      "evidence": "site/tests/match-validation.md"
+    },
+    {
+      "id": 77,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Physical live-pitch feasibility benchmark",
+      "state": "isolated host prototype/measurements only; not integrated or MCU-validated",
+      "evidence": "experiments/independent-pitch/measurements.json"
+    },
+    {
+      "id": 78,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Device metadata identity and title sidecar",
+      "state": "isolated reference codec and 16 host simulations pass; no storage allocation, device protocol or firmware integration",
+      "evidence": "experiments/song-metadata/PROTOCOL.md"
+    },
+    {
+      "id": 79,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Measured physical dimensions",
+      "state": "reference research documented; factory dimensions/user caliper measurements pending",
+      "evidence": "docs/GEOMETRY_SOURCES.md"
+    },
+    {
+      "id": 80,
+      "owner": "sync-pitch-and-geometry",
+      "task": "Model/guide measured-geometry validation",
+      "state": "pending trustworthy dimensions; approved model geometry preserved"
+    }
+  ],
+  "updated": "2026-10-03",
+  "release_status": {
+    "installed": "bonsai-8-0.4.4",
+    "installed_verification": "runtime bonsai-8-0.4.4; original four song rows unchanged; new Song5 short3.173s mix saved and fully exported through Python, no sustained recording proof",
+    "candidate": "bonsai-8-0.4.5",
+    "candidate_state": "effect-free candidate built; 6 C sanitizer suites, 41 Python and 141 site tests pass; not flashed",
+    "public_installer": "0.4.0 candidate; not a verified release",
+    "site_version": "01M40J4331V6AMYAED5JZVP1YV",
+    "site_tests_passed": 141,
+    "blocking_measurement": "0.4.4 all eight dry stems + USB capture/mirror: +225/+241 underruns in20.063s; filters bypassed, stable controls",
+    "previous_candidate": {
+      "version": "bonsai-8-0.4.3",
+      "state": "built and host-tested; never flashed; superseded by filter-only scope",
+      "sha256": "3a0fc2bb2c58a5de47692a94fda3ec9c680b2d4c6fc76a4a5ec2d58a08245294"
+    },
+    "candidate_scope": {
+      "retained_effect": "independent high-pass filter per stem; increasing amount removes bass/low frequencies",
+      "removed_effects": [
+        "Echo",
+        "Reverb"
+      ],
+      "reason": "explicit user choice to reduce effects scope while resolving USB/mirroring load",
+      "controls": "hold FUNCTION + stem, use that fader after pickup; rocker ignored during editing; side light 1 identifies Filter; zero bypass",
+      "cutoff_range": "not claimed until DSP endpoint measurements are confirmed"
+    },
+    "site_test_scope": "Final integrated site suite:138 pass; later documentation-only status updates.",
+    "candidate_hardware_gates": [
+      "all eight stems dry for a stable 20-second window",
+      "all eight high-pass filters at full amount",
+      "same full filter workload with USB audio capture and mirroring",
+      "varied speeds and filter/level transitions",
+      "browse while the other deck plays",
+      "offline recording, verified save, reboot and export",
+      "browser flash preservation and recovery"
+    ],
+    "candidate_sha256": "cb6e2c1ebb8e5277a0ae693bea5ed0d4bc0a98c4760312a738031bb907fb64ef",
+    "candidate_binary_bytes": 106504,
+    "candidate_ram_bytes": 230772,
+    "site_tests_note": "Final integrated site suite: 138 pass, including deferred audio permission, cancellation and application races.",
+    "installation": {
+      "flash_start_utc": "2026-10-03T09:39:54Z",
+      "flash_end_utc": "2026-10-03T09:40:02Z",
+      "runtime_verified_utc": "2026-10-03T09:41:12Z",
+      "application_pages": 27,
+      "chunks": 469,
+      "crc_valid_finalizations": 2,
+      "library_writes": false,
+      "flash_or_audio_readback": false,
+      "application_bytes": 106504,
+      "ram_bytes": 230772,
+      "sha256": "cb6e2c1ebb8e5277a0ae693bea5ed0d4bc0a98c4760312a738031bb907fb64ef"
+    }
+  },
+  "scope_changes": [
+    {
+      "date": "2026-10-03",
+      "decision": "User explicitly retained Filter and removed Echo/Reverb for 0.4.4, then chose high-pass direction. Earlier effect tests remain historical evidence, not pending current-release features."
+    },
+    {
+      "date": "2026-10-03",
+      "decision": "User removed all effects and filters. Prioritize device recording, independent library selection and beat matching. Pitch-preserving browser preparation is implemented; live disconnected sync remains experimental after quality failures."
+    }
+  ],
+  "follow_up_work": [
+    {
+      "task": "Volume-triggered stutter investigation",
+      "state": "in progress after filter-only installation; user identifies physical +/- master buttons; broader constant-volume USB+mirror failure also reproduced",
+      "validation": "controlled physical volume changes with eight stems; compare USB capture/mirroring on and off, retain timing and underrun evidence"
+    },
+    {
+      "task": "Recording shortcut robustness and export",
+      "state": "Host replay reproduced repeated toggle from volume ADC release while FUNCTION held; full-release guard passes. Installed0.4.4 saved3.173s Song5 and complete Python export is non-silent. Long recording and site export pending."
+    }
+  ]
+}

@@ -32,7 +32,7 @@ later 3.x flashes.
 
 ## Flashing it onto the SP-1
 
-**[⬇ Download the latest firmware — `sp1_looper.bin`](https://github.com/chattock/sp1-tape-looper/releases/latest)**
+**[Download the latest firmware — `sp1_looper.bin`](https://github.com/chattock/sp1-tape-looper/releases/latest)**
 
 The SP-1 is flashed with the Solderless updater (the same tool used for any
 SP-1 custom firmware) — no soldering or opening the device required:

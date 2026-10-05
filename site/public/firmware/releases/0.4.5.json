@@ -1,0 +1,22 @@
+{
+  "product": "Bonsai 8",
+  "version": "0.4.5",
+  "status": "candidate",
+  "bytes": 111788,
+  "sha256": "7c73ac8dd601f537f962c5e3cd50bacd9a337f330f8b36b817bdcfe4074344f2",
+  "application_address": 131072,
+  "file": "bonsai-8-0.4.5.bin",
+  "source_tree": "27f2903a08d69dfe5ff8debf01e1682b842bc3e1",
+  "known_issues": [
+    "Live sync requires tapped beat grids on both songs. Wide tempo changes can repeat or smear transients.",
+    "This candidate passed host tests; physical USB/mirroring, live sync and sustained recording validation are pending."
+  ],
+  "features": [
+    "No effects or filters",
+    "Pitch-preserving manual tempo and tapped-grid beat sync",
+    "Independent full-library selection for both decks",
+    "Standalone mix recording with complete-shortcut-release guard",
+    "Batched USB control and mirror transmission"
+  ],
+  "songs_preserved_by_update": true
+}

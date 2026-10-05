@@ -74,6 +74,7 @@ extern bool uac2_fs_fb_windows_fmt;
 #include "sp1_emmc.h"
 #ifdef SP1_DUAL_DECK
 #include "dual_engine.h"
+#include "bonsai_cdc.h"
 #include "dual_capture.h"
 static void dual_init(void);
 static void dual_storage_thread(void *, void *, void *);
@@ -1651,6 +1652,10 @@ static volatile uint32_t g_stored_glitch_cnt;    /* diag: wfail advance-anyway c
                                                   * what previous crackle hunts were missing. */
 static volatile uint32_t g_i2s_wfail_cnt;        /* diag: I2S write failures (audio-path exoneration) */
 static volatile uint32_t g_audio_us_max;         /* diag: worst looper_audio_block exec time, us (DWT, session) */
+#ifdef SP1_DUAL_DECK
+static volatile uint32_t g_dual_audio_us_total, g_dual_audio_blocks;
+static volatile uint32_t g_dual_cdc_us, g_dual_cdc_max, g_dual_cdc_bytes;
+#endif
 static volatile int32_t  g_play_lowat = 0x7FFFFFFF; /* diag: window MIN play-ring margin, samples */
 static volatile uint32_t g_rec_hiwat;            /* diag: window MAX rec-ring fill, samples */
 static volatile uint8_t  g_extcsd_dump[9];       /* diag: EXT_CSD[167,166,231,502,503,198,246,192,175] */
@@ -4304,7 +4309,7 @@ static void __attribute__((optimize("O2"), noinline)) fx_chain_run(int32_t *mix3
 		 * The lean path is master volume -> limiter -> store -> decimated
 		 * VU, and nothing else. It costs flash (a duplicated loop) and
 		 * returns cycles, which is the right trade on a part with plenty of
-		 * flash and ~4%% idle. ⚠ NOTE: this is an OPTIMISATION, not a
+		 * flash and ~4%% idle. NOTE: this is an OPTIMISATION, not a
 		 * regression fix -- W206 measured the same-bin corner spread at
 		 * 24%% / 2x, so nothing smaller than that was ever demonstrated. */
 		const int fx_any = (flt_mode != 0u && rp1) || (chr_mix != 0) || (dst_g != 0)
@@ -6990,7 +6995,7 @@ static bool emmc_busy_abort_chk(void)
  * can always preempt the bit-bang busy-waits and keep the I2S DMA fed. Per
  * PLAY track: read-ahead into the play ring. Per REC/DONE track: flush the rec
  * ring to the card; on DONE, finish the tail then switch the track to PLAY. */
-static K_THREAD_STACK_DEFINE(streamer_stack, 3072);  /* RD2-475: was 3072 (474), 4096 originally. 474's run RECORDED, so the write/flush chain was on this stack, and U4S STILL measured a 680 B peak -- identical to the read-only 473 figure. 3.0x margin, 1368 B free. */  /* 4096: the eMMC driver is -O2 here, so its read/send_command/crc chain inlines into a deeper frame on this thread */
+static K_THREAD_STACK_DEFINE(streamer_stack, 4096);  /* RD2-475: was 3072 (474), 4096 originally. 474's run RECORDED, so the write/flush chain was on this stack, and U4S STILL measured a 680 B peak -- identical to the read-only 473 figure. 3.0x margin, 1368 B free. */  /* 4096: the eMMC driver is -O2 here, so its read/send_command/crc chain inlines into a deeper frame on this thread */
 static struct k_thread streamer_tcb;
 static uint8_t g_streamer_started;   /* v1.2.3: streamer may start EARLY (standby) */
 static void streamer_thread(void *a, void *b, void *c);
@@ -7009,30 +7014,151 @@ static void streamer_start(void)
 static volatile uint8_t g_usb_up;    /* usb_audio_start() completed (gates xfer polling) */
 
 #if SP1_XFER_ENABLE
-/* ISR: drain the CDC RX FIFO into the ring buffer (host -> device bytes). */
-static void cdc_rx_isr(const struct device *dev, void *u)
+#ifdef SP1_DUAL_DECK
+/* Whole replies leave the storage owner immediately. Only the CDC callback
+ * calls uart_fifo_fill, as required by this driver's workqueue context. */
+static struct bonsai_cdc_tx g_cdc_tx_queue;
+static _Atomic bool g_cdc_configured,g_cdc_reset_pending,g_cdc_online;
+static uint32_t g_cdc_session,g_cdc_response_session;
+static bool g_cdc_rx_paused;
+static void cdc_note_cost(uint32_t start,uint32_t bytes)
 {
-	ARG_UNUSED(u);
-	while (uart_irq_update(dev) && uart_irq_rx_ready(dev)) {
-		uint8_t b[64];
-		int n = uart_fifo_read(dev, b, sizeof b);
-		if (n > 0) (void)ring_buf_put(&g_cdc_rx, b, (uint32_t)n);
-	}
+ uint32_t us=(DWT->CYCCNT-start)/64u;
+ unsigned key=irq_lock();
+ g_dual_cdc_us+=us;g_dual_cdc_bytes+=bytes;
+ if(us>g_dual_cdc_max)g_dual_cdc_max=us;
+ irq_unlock(key);
+}
+static void cdc_usb_event(struct usbd_context *const ctx,const struct usbd_msg *const msg)
+{
+ ARG_UNUSED(ctx);
+ if(msg->type==USBD_MSG_CONFIGURATION) {
+  atomic_store(&g_cdc_configured,msg->status!=0);
+  if(msg->status==0)atomic_store(&g_cdc_reset_pending,true);
+ } else if(msg->type==USBD_MSG_RESET||msg->type==USBD_MSG_VBUS_REMOVED||
+           msg->type==USBD_MSG_UDC_ERROR||msg->type==USBD_MSG_STACK_ERROR) {
+  atomic_store(&g_cdc_configured,false);atomic_store(&g_cdc_reset_pending,true);
+ } else if(msg->type==USBD_MSG_CDC_ACM_CONTROL_LINE_STATE&&msg->dev==cdc) {
+  uint32_t dtr=0;
+  (void)uart_line_ctrl_get(cdc,UART_LINE_CTRL_DTR,&dtr);
+  if(!dtr)atomic_store(&g_cdc_reset_pending,true);
+ }
+ /* A disconnect stops callback transmission immediately. The storage owner
+  * resets its queue/parser at its next turn, never concurrently with a copy. */
+ if(atomic_load(&g_cdc_reset_pending)) {
+  atomic_store(&g_cdc_online,false);uart_irq_tx_disable(cdc);
+  /* Keep the first request of a newly configured host in the driver's RX
+   * FIFO until the storage owner has reset the prior session's ring. */
+  g_cdc_rx_paused=true;uart_irq_rx_disable(cdc);
+ }
+}
+static void cdc_rx_resume(void)
+{
+ unsigned key=irq_lock();
+ if(g_cdc_rx_paused&&atomic_load(&g_cdc_online)&&
+    !atomic_load(&g_cdc_reset_pending)&&ring_buf_space_get(&g_cdc_rx)>=64u) {
+  g_cdc_rx_paused=false;uart_irq_rx_enable(cdc);
+ }
+ irq_unlock(key);
+}
+/* Storage-owner call only. Endpoint acceptance is not host receipt. A session
+ * break discards its unsent bytes and resets partial commands; no stale reply
+ * is deliberately replayed on a new connection. Driver-held bytes may require
+ * the host's existing reconnect/line-resynchronization step. */
+static bool cdc_session_sync(void)
+{
+ /* line_ctrl_get is a plain driver-field read. Exclude the USB callback while
+  * taking this lifecycle snapshot and resetting its SPSC queues. */
+ unsigned key=irq_lock();
+ uint32_t dtr=0;(void)uart_line_ctrl_get(cdc,UART_LINE_CTRL_DTR,&dtr);
+ bool online=atomic_load(&g_cdc_configured)&&dtr!=0;
+ bool reset=atomic_exchange(&g_cdc_reset_pending,false);
+ bool before=atomic_load(&g_cdc_online);
+ if(reset||(before&&!online)) {
+  uart_irq_tx_disable(cdc);bonsai_cdc_reset(&g_cdc_tx_queue);
+  ring_buf_reset(&g_cdc_rx);g_cdc_rx_paused=true;uart_irq_rx_disable(cdc);
+  ++g_cdc_session;
+ }
+ if(online&&!before&&!reset)++g_cdc_session;
+ atomic_store(&g_cdc_online,online);
+ irq_unlock(key);
+ cdc_rx_resume();return online;
+}
+#endif
+
+/* The driver invokes this callback in its existing workqueue, not in the
+ * storage thread. Bounded RX/TX chunks keep each callback short. */
+static void cdc_rx_isr(const struct device *dev,void *u)
+{
+ ARG_UNUSED(u);
+#ifdef SP1_DUAL_DECK
+ uint32_t start=DWT->CYCCNT;
+ if(!uart_irq_update(dev))return;
+ if(uart_irq_rx_ready(dev)&&!atomic_load(&g_cdc_reset_pending)) {
+  uint8_t b[64];uint32_t room=ring_buf_space_get(&g_cdc_rx);
+  if(room) {
+   int n=uart_fifo_read(dev,b,MIN(room,sizeof(b)));
+   if(n>0)(void)ring_buf_put(&g_cdc_rx,b,(uint32_t)n);
+  }
+  if(!ring_buf_space_get(&g_cdc_rx)) {
+   g_cdc_rx_paused=true;uart_irq_rx_disable(dev);
+  }
+ }
+ if(uart_irq_tx_ready(dev)) {
+  if(!atomic_load(&g_cdc_online)||atomic_load(&g_cdc_reset_pending))uart_irq_tx_disable(dev);
+  else {
+   const uint8_t *data;uint32_t count=bonsai_cdc_peek(&g_cdc_tx_queue,&data);
+   if(count) {
+    int sent=uart_fifo_fill(dev,data,MIN(count,256u));
+    if(sent>0)(void)bonsai_cdc_consume(&g_cdc_tx_queue,(uint32_t)sent);
+   }
+   /* The only producer is a lower-priority storage thread on this single-core
+    * MCU. It cannot publish between this empty check and disable. Its next
+    * successful publication always reenables TX, including an empty transition. */
+   if(!bonsai_cdc_pending(&g_cdc_tx_queue))uart_irq_tx_disable(dev);
+  }
+ }
+ cdc_note_cost(start,0);
+#else
+ while(uart_irq_update(dev)&&uart_irq_rx_ready(dev)) {
+  uint8_t b[64];int n=uart_fifo_read(dev,b,sizeof(b));
+  if(n>0)(void)ring_buf_put(&g_cdc_rx,b,(uint32_t)n);
+ }
+#endif
 }
 
-/* Blocking byte send (matches how printk drives the console). */
-static void cdc_tx(const uint8_t *p, uint32_t n)
+static bool cdc_tx(const uint8_t *p,uint32_t n)
 {
-	for (uint32_t i = 0; i < n; i++) uart_poll_out(cdc, p[i]);
+#ifdef SP1_DUAL_DECK
+ uint32_t start=DWT->CYCCNT;
+ /* Admission is checked before commands consume events or modify storage.
+  * No wait, bytewise poll, or dynamic allocation occurs on this path. */
+ if(!atomic_load(&g_cdc_online)||atomic_load(&g_cdc_reset_pending)||
+    g_cdc_response_session!=g_cdc_session||!bonsai_cdc_write(&g_cdc_tx_queue,p,n))return false;
+ uart_irq_tx_enable(cdc);
+ cdc_note_cost(start,n);return true;
+#else
+ for(uint32_t i=0;i<n;i++)uart_poll_out(cdc,p[i]);
+ return true;
+#endif
 }
 
 /* Pull exactly n bytes from the RX ring, up to timeout_ms. */
 static bool cdc_rx(uint8_t *p, uint32_t n, int timeout_ms)
 {
+#ifdef SP1_DUAL_DECK
+ uint32_t session=g_cdc_session;
+#endif
 	int64_t end = k_uptime_get() + timeout_ms;
 	uint32_t got = 0;
 	while (got < n) {
+#ifdef SP1_DUAL_DECK
+        if(!cdc_session_sync()||session!=g_cdc_session)return false;
+#endif
 		got += ring_buf_get(&g_cdc_rx, p + got, n - got);
+#ifdef SP1_DUAL_DECK
+        cdc_rx_resume();
+#endif
 		if (got < n) {
 			if (k_uptime_get() > end) return false;
 			k_msleep(1);
@@ -7047,6 +7173,12 @@ static bool cdc_rx(uint8_t *p, uint32_t n, int timeout_ms)
  * byte so it aborts that block; the host's next ping then resyncs cleanly. */
 static void xfer_resync(uint8_t err_byte)
 {
+#ifdef SP1_DUAL_DECK
+ /* A cancelled old-session sub-read must not drain a new host's request or
+  * append its binary error byte to that host's normal JSON response. */
+ if(g_cdc_response_session!=g_cdc_session||!atomic_load(&g_cdc_online)||
+    atomic_load(&g_cdc_reset_pending))return;
+#endif
 	uint8_t dump;
 	while (ring_buf_get(&g_cdc_rx, &dump, 1) == 1) {
 	}
@@ -8518,7 +8650,12 @@ static bool emmc_read_blocks_fast(uint32_t blk, uint8_t *buf, uint32_t n)
 			{	/* CRCC-625 (W302): the canary -- every block below the rate or while
 				 * re-armed, else one rotating block per call; a mismatch retries the
 				 * turn fully checked (the attempt loop) and re-arms full checking */
+#ifdef SP1_DUAL_DECK
+                /* Dual Deck verifies every sector, including at eight-stem rate. */
+                const bool _full = true;
+#else
 				const bool _full = (g_crcc_full != 0u) || (g_crcc_rate <= CRCC_RATE_FULL);
+#endif
 				const uint32_t _pick = g_crcc_pick++ % c;
 				for (uint32_t bi = 0; bi < c; bi++) {
 					if (!_full && bi != _pick) { g_m71_sk++; continue; }
@@ -10751,6 +10888,8 @@ static void audio_thread(void *a, void *b, void *c)
         dual_audio_block(blk);
         uint32_t elapsed_us = (DWT->CYCCNT - start_cycles) / 64u;
         if (elapsed_us > g_audio_us_max) g_audio_us_max = elapsed_us;
+        g_dual_audio_us_total += elapsed_us;
+        ++g_dual_audio_blocks;
 #else
 		uint32_t _c0 = DWT->CYCCNT;
 		looper_audio_block(blk);
@@ -10952,22 +11091,37 @@ static const struct device *const uac2_dev =
 static struct dd_capture dd_usb_audio;
 static bool dd_usb_capture_on;
 static uint32_t dd_usb_send_errors,dd_usb_packets;
+/* Bounded DWT probes separate capture copying from cooperative USB service.
+ * Totals wrap at uint32; compare unsigned deltas over short test windows. */
+static volatile uint32_t dd_capture_push_us, dd_capture_push_max, dd_capture_push_calls;
+static volatile uint32_t dd_capture_sof_us, dd_capture_sof_max, dd_capture_sof_calls;
 K_MEM_SLAB_DEFINE_STATIC(dd_capture_slab,ROUND_UP(196,UDC_BUF_GRANULARITY),4,UDC_BUF_ALIGN);
 static void dual_capture_audio(const int16_t *stereo)
 {
  unsigned key=irq_lock();
- if(dd_usb_capture_on) dd_capture_push(&dd_usb_audio,stereo,BLK_FRAMES);
+ if(dd_usb_capture_on) {
+  uint32_t start=DWT->CYCCNT;
+  dd_capture_push(&dd_usb_audio,stereo,BLK_FRAMES);
+  uint32_t us=(DWT->CYCCNT-start)/64u;
+  dd_capture_push_us+=us;++dd_capture_push_calls;
+  if(us>dd_capture_push_max) dd_capture_push_max=us;
+ }
  irq_unlock(key);
 }
 static void dual_capture_sof(void)
 {
  if(!dd_usb_capture_on) return;
+ uint32_t start=DWT->CYCCNT;
  void *buf;
- if(k_mem_slab_alloc(&dd_capture_slab,&buf,K_NO_WAIT)) {dd_usb_send_errors++;return;}
+ if(k_mem_slab_alloc(&dd_capture_slab,&buf,K_NO_WAIT)) {dd_usb_send_errors++;goto done;}
  uint32_t frames=dd_capture_packet(&dd_usb_audio,buf);
  if(!frames){frames=48;memset(buf,0,frames*4);}
  int rc=usbd_uac2_send(uac2_dev,DD_CAPTURE_TERMINAL,buf,(uint16_t)(frames*4));
  if(rc){dd_usb_send_errors++;k_mem_slab_free(&dd_capture_slab,buf);}else dd_usb_packets++;
+done:;
+ uint32_t us=(DWT->CYCCNT-start)/64u;
+ dd_capture_sof_us+=us;++dd_capture_sof_calls;
+ if(us>dd_capture_sof_max) dd_capture_sof_max=us;
 }
 #endif
 
@@ -11113,7 +11267,11 @@ static void usb_audio_start(void)
 
 	usbd_uac2_set_ops(uac2_dev, &sp1_uac2_ops, NULL);
 
+#ifdef SP1_DUAL_DECK
+	usbd = sample_usbd_init_device(cdc_usb_event);
+#else
 	usbd = sample_usbd_init_device(NULL);
+#endif
 	if (usbd == NULL) {
 		printk("usbd init failed\n");
 		return;
@@ -11123,7 +11281,7 @@ static void usb_audio_start(void)
 	 * per VID/PID/version — without a version bump a PC that saw the old
 	 * (Code-10) audio descriptor keeps judging a re-flashed SP-1 by the
 	 * cached copy and can stay broken even after the fix. */
-	(void)usbd_device_set_bcd_device(usbd, 0x0301);
+	(void)usbd_device_set_bcd_device(usbd, 0x0400);
 
 	if (usbd_enable(usbd) != 0) {
 		printk("usbd enable failed\n");
@@ -14900,7 +15058,7 @@ int main(void)
 					 * let go -- the chord arrives here as a bare 1+4 and would
 					 * mute tracks 1 and 4, or (held long enough) reach the
 					 * bootloader. Swallow it until the ladder is truly idle.
-					 * ⚠ THIS is the real hazard. 563 guarded an imaginary one
+					 * NOTE: THIS is the real hazard. 563 guarded an imaginary one
 					 * in code that never executes. */
 					combo14_t  = -1;
 					combo_held = 0;
@@ -14908,7 +15066,7 @@ int main(void)
 				} else if (combo_now == 0x9) {  /* ONLY exactly 1+4 arms the bootloader */
 					/* time-based (not a +8/iter counter) so the diag-print path
 					 * can't skew the threshold.
-					 * ⚠ UNGUARDED BY DESIGN. There is no reset pin; this is the
+					 * NOTE: UNGUARDED BY DESIGN. There is no reset pin; this is the
 					 * only way back. FN cannot reach here anyway (the FN branch
 					 * continues out ~230 lines above), so a modifier test would
 					 * be theatre. */

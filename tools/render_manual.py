@@ -10,7 +10,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle, Preformatted
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / 'output/pdf/SP-1-Dual-Deck-User-Manual.pdf'
+OUT = ROOT / 'output/pdf/Bonsai-8-User-Manual.pdf'
 INK = colors.HexColor('#333b32')
 ACCENT = colors.HexColor('#536c40')
 PAPER = colors.HexColor('#fafaf5')
@@ -30,7 +30,7 @@ def footer(canvas, doc):
     canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
     canvas.setFillColor(INK)
     canvas.setFont('Helvetica', 8)
-    canvas.drawString(20*mm, 15*mm, 'SP-1 DUAL DECK  /  USER MANUAL')
+    canvas.drawString(20*mm, 15*mm, 'BONSAI 8  /  USER MANUAL')
     canvas.drawRightString(doc.pagesize[0]-20*mm, 15*mm, str(doc.page))
     canvas.setStrokeColor(colors.HexColor('#d7ddcf'))
     canvas.line(20*mm, 21*mm, doc.pagesize[0]-20*mm, 21*mm)
@@ -66,6 +66,9 @@ def main():
         elif line.startswith('## '):
             story.extend([PageBreak(), Paragraph(inline(line[3:]), styles['ManualSection'])])
         elif line.startswith('### '):
+            if line[4:] in ('Record the mix without a computer', 'Four small side status LEDs',
+                            'Match tempo, key and individual stem pitch'):
+                story.append(PageBreak())
             story.append(Paragraph(inline(line[4:]), styles['ManualSub']))
         elif line.startswith('```'):
             code = []
@@ -89,8 +92,8 @@ def main():
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('LEFTPADDING', (0, 0), (-1, -1), 9),
                 ('RIGHTPADDING', (0, 0), (-1, -1), 9),
-                ('TOPPADDING', (0, 0), (-1, -1), 5),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ('TOPPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
                 ('LINEBELOW', (0, 0), (-1, 0), 0.6, colors.HexColor('#bcc9ad')),
             ]))
             story.extend([table, Spacer(1, 12)])
@@ -99,7 +102,7 @@ def main():
         i += 1
     doc = SimpleDocTemplate(str(OUT), pagesize=(210*mm, 297*mm), rightMargin=20*mm,
                             leftMargin=20*mm, topMargin=20*mm, bottomMargin=25*mm,
-                            title='SP-1 Dual Deck - User Manual', author='SP-1 Dual Deck project',
+                            title='Bonsai 8 - User Manual', author='Bonsai 8 project',
                             subject='Physical controls, two-song stem mixing, website and firmware limits')
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
     print(OUT)
