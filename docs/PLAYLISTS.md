@@ -70,5 +70,6 @@ playlist settings reset, while its audio remains present.
 
 No playlist save touches song audio, index, grid or X3 sectors. Application-only
 firmware flashing does not write these eMMC banks. The current hardware-test
-candidate still needs real-device save/reboot, browsing-under-load and playback
-checks before promotion to a verified release.
+candidate passed real-device save and restart persistence checks on October 17,
+2026. Browsing under load and playback checks remain required before promotion
+to a verified release.
