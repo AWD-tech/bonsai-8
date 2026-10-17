@@ -1,6 +1,14 @@
 # Physical test — 2026-09-30
 
-## Current result — October 3, 2026
+## Playlist implementation — October 17, 2026
+
+0.4.6 adds persistent per-deck song membership and BPM ordering. It is an **unflashed hardware-test candidate**, not a verified upgrade. No SP-1 was detected during this implementation; no device writes were attempted. The live installer remains 0.4.5 pending hardware checks.
+
+Host checks passed: nine C sanitizer suites, 50 Python tests and 156 website tests. New checks cover real FUNCTION/rocker replay with independent playlists; matching C/JavaScript binary formats and descriptor CRCs; generation wrap and corrupt-bank fallback; unknown-schema rejection; stale-library rejection; exclusive verified saves to sectors 6/7; no writes to audio/index/grid/X3 during playlist saves; deletion and identical slot reuse; and UI editing/recording/disconnect guards. Browser checks confirmed live preview reordering and membership changes, with no horizontal overflow at 390 px. These use simulated storage/control inputs, not hardware playback.
+
+The ARM application is 112,888 bytes; RAM is 254,492 / 262,144 bytes (72 bytes more than 0.4.5). No playlist work runs in the audio callback. Before promoting: compare the device library before/after application-only flashing, save different A/B playlists, power-cycle and confirm ordering, replace each deck repeatedly while the other plays, and run eight-stem/USB/mirroring plus recording regressions. Playlist settings use descriptor fingerprints, not audio hashes; identical-descriptor replacements by another uploader require rechecking labels.
+
+## Previous result — October 3, 2026
 
 ## Effect-free 0.4.5 candidate — October 3, 2026
 

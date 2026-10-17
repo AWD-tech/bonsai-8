@@ -120,3 +120,20 @@ select:not([multiple]){appearance:none;-webkit-appearance:none;min-height:40px;l
 
 /* Optional physical sync telemetry stays visible beside the live deck clocks. */
 #hardware-sync{margin:0 0 10px;font-size:11px;line-height:1.65;color:var(--ink)}
+
+/* Physical deck playlists: inline editor, never covering the player. */
+#device-playlists { margin: 1rem 0; border-block: 1px solid var(--line, #d4d7ca); padding: 1rem 0; }
+#device-playlists summary { cursor: pointer; font-weight: 600; }
+#playlist-help, #playlist-editor > small { color: var(--muted, #6d7468); line-height: 1.5; }
+#playlist-editor > small { display: block; margin-top: .6rem; }
+.playlist-row { display: grid; grid-template-columns: minmax(0, 1fr) 6.5rem 2.5rem 2.5rem; gap: .65rem; align-items: center; padding: .65rem 0; border-bottom: 1px solid var(--line, #d4d7ca); }
+.playlist-row > span { overflow-wrap: anywhere; }
+.playlist-row label { display: flex; align-items: center; gap: .3rem; font-size: .85rem; }
+.playlist-row label:has(input[type=number]) { flex-direction: column; align-items: stretch; }
+.playlist-row input[type=number] { width: 100%; min-width: 0; box-sizing: border-box; padding: .5rem; border: 1px solid #b8beaf; border-radius: .3rem; color: inherit; background: transparent; font: inherit; }
+.playlist-row input[type=checkbox] { accent-color: #435238; width: 1.1rem; height: 1.1rem; }
+.playlist-preview { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 1rem; margin: 1rem 0; }
+.playlist-preview h3 { margin: 0 0 .5rem; font-size: 1rem; }
+.playlist-preview ol { padding-left: 1.4rem; margin: 0; }
+.playlist-preview button { text-align: left; padding: .4rem 0; font: inherit; color: inherit; overflow-wrap: anywhere; }
+@media(max-width: 430px) { .playlist-row { grid-template-columns: minmax(0,1fr) 5.5rem 2rem 2rem; gap: .35rem; } .playlist-preview { grid-template-columns: 1fr; } }

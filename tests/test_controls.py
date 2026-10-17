@@ -34,6 +34,8 @@ HARNESS = r'''
 #include <string.h>
 #include "dual_engine.h"
 #include "bonsai_sync.h"
+#include "bonsai_playlist.h"
+static _Atomic uint32_t dd_playlist_rows[16];
 #define NUM_SLOTS 16
 #define MIN(a,b) ((a)<(b)?(a):(b))
 #define CLAMP(x,lo,hi) ((x)<(lo)?(lo):((x)>(hi)?(hi):(x)))
@@ -130,6 +132,7 @@ static void reset(unsigned slots,unsigned selected,int slot_a,int slot_b){
   atomic_store(&dd_sync_state[k],0);atomic_store(&dd_sync_result[k],BONSAI_SYNC_MANUAL);atomic_store(&dd_sync_taps[k],0);
  }
  g_sample_clock=0;dd_halted=false;dd_sync_feedback_until=0;atomic_store(&dd_record_state,0);
+ for(unsigned i=0;i<16;i++)atomic_store(&dd_playlist_rows[i],BONSAI_PLAYLIST_DEFAULT);
  dd_selected=(uint8_t)selected;library=(uint16_t)slots;frame=frames=0;
  consume_at=-1;complete_at=-1;pending_load=-1;request_count=0;previous_request=-1;recording=false;
  atomic_store(&dd_request[0],-1);atomic_store(&dd_request[1],-1);
@@ -149,6 +152,20 @@ static void run(void);
 
 TESTS = r'''
 static void run(void){if(!setjmp(done))dual_controls();}
+static void test_separate_playlists(void){
+ reset(0x1f,1,0,1);
+ atomic_store(&dd_playlist_rows[0],12000|(1u<<16));
+ atomic_store(&dd_playlist_rows[1],9000|(3u<<16));
+ atomic_store(&dd_playlist_rows[2],13000|(1u<<16));
+ atomic_store(&dd_playlist_rows[3],9500|(2u<<16));
+ atomic_store(&dd_playlist_rows[4],10000|(2u<<16));
+ hold(5,1,0,0);hold(6,1,0,1220);hold(5,1,0,0);hold(6,1,0,1220);hold(5,0,0,0);
+ run();assert(request_count==2);assert(request_seen[0]==3&&request_seen[1]==4);
+ assert(atomic_load(&dd_slot[0])==0&&atomic_load(&dd.deck[0].playing)==1);
+ assert(dd_selected==1);
+ dd_selected=0;dual_choose_song(1);assert(atomic_exchange(&dd_request[0],-1)==2);
+ dual_choose_song(1);assert(atomic_exchange(&dd_request[0],-1)==1);
+}
 static void test_queued_cursor(void){
  reset(0x1f,1,0,1);
  hold(5,1,0,0);hold(6,1,0,1220);hold(5,1,0,0);
@@ -323,6 +340,7 @@ static void test_unloaded_or_unsupported_length_clears_old_grid(void){
 int main(int argc,char **argv){
  assert(argc==2);
  if(!strcmp(argv[1],"all"))test_every_slot_and_direction();
+ else if(!strcmp(argv[1],"playlists"))test_separate_playlists();
  else if(!strcmp(argv[1],"queued"))test_queued_cursor();
  else if(!strcmp(argv[1],"sparse"))test_sparse_wrap();
  else if(!strcmp(argv[1],"held"))test_repeated_hold();
@@ -370,7 +388,7 @@ class PhysicalControlTests(unittest.TestCase):
         subprocess.run(['cc','-std=c11','-O1','-g','-Wall','-Wextra','-Werror',
                         '-fsanitize=address,undefined','-I',str(ROOT/'firmware/src'),
                         str(src),str(ROOT/'firmware/src/dual_engine.c'),str(ROOT/'firmware/src/bonsai_stretch.c'),
-                        str(ROOT/'firmware/src/bonsai_sync.c'),'-lm',
+                        str(ROOT/'firmware/src/bonsai_sync.c'),str(ROOT/'firmware/src/bonsai_playlist.c'),'-lm',
                         '-o',str(cls.exe)],check=True)
 
     @classmethod
@@ -381,6 +399,7 @@ class PhysicalControlTests(unittest.TestCase):
         result = subprocess.run([str(self.exe),case],capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stderr+result.stdout)
 
+    def test_separate_bpm_playlists_keep_the_other_deck_running(self): self.replay('playlists')
     def test_all_16_slots_both_directions(self): self.replay('all')
     def test_next_beyond_loading_slot(self): self.replay('queued')
     def test_previous_next_skip_empty_and_wrap(self): self.replay('sparse')

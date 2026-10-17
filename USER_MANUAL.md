@@ -2,23 +2,23 @@
 
 Two songs. Eight stems. Your mix.
 
-User guide / Firmware 0.4.5 candidate and companion site / 3 October 2026
+User guide / Firmware 0.4.6 candidate and companion site / 17 October 2026
 
 Bonsai 8 turns the SP-1 into a two-deck stem player. Choose a song for **Deck A** and another for **Deck B**. Bring their voices, drums and instruments together, balance their levels, and record the result on the player.
 
 The four faders control one deck at a time. Tap **FUNCTION** to change decks. The other deck keeps playing with the levels you left it at.
 
-**Release status:** This guide describes the **0.4.5 candidate**, which removes all effects and changes USB response handling. Check `HARDWARE_TEST.md` in the project repository for the current installed version and hardware test results. The candidate adds manually tapped beat grids and live pitch-preserving tempo/sync controls. They still need hardware validation; wider tempo changes can blur or repeat transients. This is not a completed release. In historical 0.4.4 tests, eight-stem playback, USB audio alone and mirroring alone passed short tests; USB audio together with mirroring caused dropouts. A short, non-silent **3.17-second recording saved as Song 5 and exported successfully**. Longer recording and combined-load reliability remain unverified. This guide describes the 0.4.5 candidate controls; earlier firmware differs. Check the exact version and test status in the website installer before updating. Opening the website does not update your player.
+**Release status:** This guide describes the **0.4.6 candidate**, which removes all effects and changes USB response handling. Check `HARDWARE_TEST.md` in the project repository for the current installed version and hardware test results. The candidate adds manually tapped beat grids and live pitch-preserving tempo/sync controls. They still need hardware validation; wider tempo changes can blur or repeat transients. This is not a completed release. In historical 0.4.4 tests, eight-stem playback, USB audio alone and mirroring alone passed short tests; USB audio together with mirroring caused dropouts. A short, non-silent **3.17-second recording saved as Song 5 and exported successfully**. Longer recording and combined-load reliability remain unverified. This guide describes the 0.4.6 candidate controls; earlier firmware differs. Check the exact version and test status in the website installer before updating. Opening the website does not update your player.
 
 ### Your first playback
 
 1. Hold FUNCTION for about 1.5 seconds to power on. Both decks start paused; A is selected.
-2. A loads the first occupied song slot; B loads the second. Start with the master volume low.
+2. With saved playlists, each deck loads its first song in BPM order. An empty playlist leaves that deck unloaded. Without saved playlists, A loads the first occupied slot and B the next. Start with the master volume low.
 3. On A, move the faders to their maximum end to pick up the starting levels, then lower them to taste.
 4. Tap and release PLAY to start A. Tap again to pause.
 5. Tap FUNCTION to select B. Its levels start at zero: move the faders to minimum, then raise the stems you want.
 
-At power-on, A's stem levels start at 100%, B's at 0%, master at 25%, and both speeds at normal. Songs remain stored; deck selections and mix settings reset when you power off.
+At power-on, A's stem levels start at 100%, B's at 0%, master at 25%, and both speeds at normal. Songs, playlist memberships and saved BPM labels remain stored; deck selections and mix settings reset when you power off.
 
 ### Keep this nearby
 
@@ -48,7 +48,17 @@ Use this example to put **Song 2's vocals over Song 1's instruments**. The stand
 7. Bring all B faders to minimum to pick up their initial zero levels. Leave 2, 3 and 4 at zero, or mute them. Raise fader 1 and make sure Track 1 is unmuted.
 8. Tap PLAY at the point where you want the vocal to enter. Adjust fader 1 to balance it over A.
 
-To try a different vocal, stay on B and browse to any other occupied slot with FUNCTION + wheel. B stops and cues the new song; A keeps its playback state. Tap PLAY to bring B back in. Empty slots are skipped and browsing wraps at the end. Both decks can also use the same song.
+To try a different vocal, stay on B and browse its saved playlist with FUNCTION + wheel (the whole library when no playlist is saved). B stops and cues the new song; A keeps its playback state. Tap PLAY to bring B back in. Empty slots are skipped and browsing wraps at the end. Both decks can also use the same song.
+
+### Save separate playlists for A and B
+
+Connect the 0.4.6 player to [sp-1.xyz](https://sp-1.xyz/), then open **On your player → Deck playlists · BPM order**. Enter each song's original BPM, or leave it blank if unknown. Select A, B, both or neither beside each song. The two lists show the resulting browsing order. Save playlists to player; saving pauses both decks and verifies the written settings. You can then disconnect the computer.
+
+Each deck browses from lowest to highest BPM, with unknown BPM last; ties follow physical slot order. Tap FUNCTION to select the deck, then hold FUNCTION and use the rocker in either direction. This replaces that deck's song and cues it paused. Tap PLAY to bring it into the mix. Lower that deck's faders before replacing a song for a smoother transition. An empty playlist stays empty; the site's Load A / Load B buttons can still load any occupied song directly.
+
+Playlist BPM labels help find suitable songs; they do not automatically align beats, change tempo or match keys. Teach fresh beat grids with the controls below before using live sync. Song changes are unavailable while recording or saving. The side lights still show song slots, not playlist positions.
+
+New or changed songs default to unknown BPM and both playlists. Recheck labels after replacing music with another uploader or firmware: descriptor fingerprints cannot detect different audio with identical metadata. Names currently last for the site connection; saved BPM and playlist membership live on the player. The 0.4.6 playlist build still needs physical save/reboot and playback-under-load tests.
 
 ### Teach the beat, then sync
 
@@ -81,7 +91,7 @@ A **tap** is a short press and release. PLAY and track-button holds become a dif
 | A track button, tap | Mute or unmute that stem on the selected deck. |
 | A track button, hold about 0.5 seconds | Solo that stem on the selected deck until released. |
 | Wheel, without FUNCTION | Adjust the selected deck's tempo while preserving pitch; leave sync. |
-| FUNCTION + wheel | Browse all occupied songs on the selected deck. |
+| FUNCTION + wheel | Load the previous/next song in the selected deck’s BPM-sorted playlist; the other deck keeps playing. |
 | Hold FUNCTION + tap Track 1 on 4+ quarter beats | Teach the playing song's beat grid and source BPM for this session. |
 | FUNCTION + Track 2, tap | Sync the selected playing deck to the other playing deck, after teaching both grids. |
 | Hold FUNCTION + Track 3, tap wheel | Nudge the active follower's beat phase in either direction. |

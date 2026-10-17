@@ -1,3 +1,4 @@
+import {PLAYLIST_BLOCK,playlistBank,decodePlaylist,writablePlaylistBank,playlistRows,encodePlaylist,playlistIdentity} from './playlists.js?v=20261017-playlists-01';
 // Bonsai 8 storage format. The index owns visibility; audio is published only
 // after every acknowledged sector and the extended table have been verified.
 export const STORAGE = Object.freeze({sector:512,slots:16,stems:4,base:4096,trackBlocks:86016,magic:0x53453341,x3Magic:0x53453358});
@@ -57,6 +58,26 @@ export class DeviceLibrary {
  read:async block=>{if(!Number.isInteger(block)||block<0||block>=STORAGE.base+16*4*STORAGE.trackBlocks)throw new Error('Read outside song storage.');const reply=await io.exchange(join(bytes('R'),u32(block)),513);if(reply.length!==513||reply[0]!==114)throw new Error('Audio read failed.');return reply.slice(1);},
  write:async(block,data)=>{if(data.length!==512||!Number.isInteger(block)||block<0||block>=STORAGE.base+16*4*STORAGE.trackBlocks)throw new Error('Invalid storage write.');await ack(join(bytes('B'),u32(block),new Uint8Array([1]),data),98);},flush:()=>ack(bytes('F'),102)};}
  async snapshot(dev){const meta=join(await dev.read(0),await dev.read(1)),x3=join(await dev.read(3),await dev.read(4),await dev.read(5));validateIndex(meta);validateExtended(x3);return {meta,x3};}
+ async playlistBanks(dev){return [await dev.read(PLAYLIST_BLOCK),await dev.read(PLAYLIST_BLOCK+1)];}
+ async writePlaylist(dev,banks,rows){
+ if(!banks.every(writablePlaylistBank))throw Error('Playlist storage contains unrecognized data. Nothing was overwritten.');
+ const active=playlistBank(banks),target=active===0?1:0,generation=active<0?1:(decodePlaylist(banks[active]).generation+1)>>>0,bank=encodePlaylist(rows,generation);
+ await dev.write(PLAYLIST_BLOCK+target,bank);await dev.flush();
+ if(!equal(await dev.read(PLAYLIST_BLOCK+target),bank))throw Error('Playlist verification failed. Reconnect and refresh before continuing.');
+ }
+ async savePlaylists(entries){
+ const status=await this.connection.library();if(status.playlists!==1||status.playlist_state<0)throw Error('Install Bonsai 8 0.4.6 or later before saving playlists.');
+ return this.run(async dev=>{const {meta,x3}=await this.snapshot(dev),occupied=indexSongs(meta),banks=await this.playlistBanks(dev),rows=playlistRows(banks,meta,x3);
+ if(entries.length!==occupied.length||new Set(entries.map(e=>e.slot)).size!==entries.length||entries.some(e=>!occupied.some(s=>s.slot===e.slot)||e.identity!==playlistIdentity(meta,x3,e.slot)))throw Error('The library changed. Refresh songs before saving playlists.');
+ for(const e of entries)rows[e.slot-1]={bpm:e.bpm,decks:e.decks,identity:e.identity};
+ await this.writePlaylist(dev,banks,rows);
+ });
+ }
+ async clearPlaylistSong(dev,meta,x3,slot){
+ const banks=await this.playlistBanks(dev);if(playlistBank(banks)<0)return;
+ const rows=playlistRows(banks,meta,x3);rows[slot-1]={bpm:0,decks:3,identity:0};
+ await this.writePlaylist(dev,banks,rows);
+ }
  async list(){return this.run(async dev=>indexSongs((await this.snapshot(dev)).meta));}
  async publish(dev,meta,x3){
  // X3 first, index publication last. Verify post-flush so deferred media writes
@@ -66,7 +87,7 @@ export class DeviceLibrary {
  if(!equal(join(await dev.read(0),await dev.read(1)),meta))throw new Error('Song index verification failed. Reconnect before continuing.');
  if(x3&&!equal(join(await dev.read(3),await dev.read(4),await dev.read(5)),x3))throw new Error('Extended metadata verification failed. Reconnect before continuing.');
  }
- async remove(slot){return this.run(async dev=>{const {meta}=await this.snapshot(dev);if(!indexSongs(meta).some(s=>s.slot===slot))throw new Error('That song slot is already empty.');await this.publish(dev,deleteSongIndex(meta,slot));});}
+ async remove(slot){return this.run(async dev=>{const {meta,x3}=await this.snapshot(dev);if(!indexSongs(meta).some(s=>s.slot===slot))throw new Error('That song slot is already empty.');await this.clearPlaylistSong(dev,meta,x3,slot);await this.publish(dev,deleteSongIndex(meta,slot));});}
  async upload(slot,stems){
  slotIndex(slot);validatePreparedStems(stems);const signature=await sha256(join(...stems.map(s=>join(u32(s.frames),s.data)))),key=`bonsai8-upload-${slot}-${signature}`;
  return this.run(async dev=>{const {meta,x3}=await this.snapshot(dev),next=publishSongIndex(meta,x3,slot,stems),identity=await sha256(join(meta,x3));let checkpoint;
