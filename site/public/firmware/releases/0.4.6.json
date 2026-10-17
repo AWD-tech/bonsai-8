@@ -41,14 +41,14 @@
     "Separate persistent A/B playlists sorted by source BPM",
     "Independent physical song browsing with the other deck playing",
     "No effects or filters",
-    "Pitch-preserving tempo and tapped-grid sync (hardware quality validation pending)",
+    "Pitch-preserving tempo and tapped-grid sync (experimental; host audio quality checks fail)",
     "Standalone mix recording (sustained hardware validation pending)"
   ],
   "known_issues": [
-    "Playlist save, restart persistence and browsing passed on a physical SP-1. All five original song entries and sampled audio sectors were preserved.",
-    "Eight full stems passed twenty-second dry and USB-audio-plus-mirroring tests using the updated site with 100 ms mirror polling and a 160 ms display buffer. Older 30 ms polling caused dropouts.",
-    "Sustained recording/save/export, live-sync sound quality, browser speaker playback and browser-driven flashing still need hardware validation.",
-    "Saved BPM labels order playlists; live sync needs user-tapped beat grids. Wide tempo changes can repeat or smear transients."
+    "Live sync remains experimental: synthetic audio tests found deep-bass pitch drift and repeated beat transients, even with the nominal beat clock locked.",
+    "Recording and WAV export passed a full eight-minute host simulation; physical recording throughput, restart durability and browser flashing still need device checks. A final save-acknowledgement failure can leave a visible take despite a failed status; check the library.",
+    "Native browser monitoring passed 60 seconds with synthetic stereo input. This does not verify physical USB capture or sound from speakers.",
+    "Playlist save/restart/browsing and twenty-second dry/USB-mirroring checks passed on the player. Use the current site: older fast mirror polling caused dropouts."
   ],
   "playlist_checks": {
     "save_readback": "passed",
@@ -56,5 +56,33 @@
     "deck_b_browse_and_wrap": "passed with continuous transition samples",
     "deck_a_browse_and_wrap": "passed before/after checks",
     "test_settings_restored": true
+  },
+  "host_validation": {
+    "date": "2026-10-17",
+    "environment": "host and isolated browser with synthetic audio/storage",
+    "recording": {
+      "verdict": "PASS_WITH_LIMITS",
+      "maximum_take_seconds": 480.106667,
+      "exact_export_stereo_frames": 11522560,
+      "paced_core_seconds": 3600.000125,
+      "final_publication_ack_failure": "Visible take may coexist with failed runtime status"
+    },
+    "live_sync": {
+      "functional": "PASS",
+      "audio_quality": "FAIL",
+      "simulated_stream_seconds": 600,
+      "tone_stereo_failures": 7,
+      "transient_failures": 1,
+      "pulse_onsets": 71,
+      "expected_pulse_onsets": 60
+    },
+    "browser_audio": {
+      "verdict": "PASS_SYNTHETIC",
+      "seconds": 60.1386,
+      "monitor_cases": 9,
+      "mixer_cases": 3,
+      "exported_pcm_frames": 1664
+    },
+    "report": "https://github.com/AWD-tech/bonsai-8/blob/feat/bpm-playlists/docs/UNATTENDED_VALIDATION_046.md"
   }
 }

@@ -1,5 +1,9 @@
 # Physical test — 2026-09-30
 
+## Unattended follow-up — October 17, 2026
+
+No SP-1 was connected for this follow-up. Maximum-length recording/save/export and native browser audio passed host/synthetic checks, but rendered live-sync audio failed pitch/spectral and pulse-alignment screens. These are software findings, not new device results. See [the complete unattended report](docs/UNATTENDED_VALIDATION_046.md) and its linked reproducible measurements. The existing 0.4.6 binary remains a candidate; the website and GitHub notes expose these findings. Recording publication also has a confirmed final-acknowledgement ambiguity: a failed final flush/readback can leave a visible take. Physical recording and browser gates are not closed by the host results.
+
 ## Playlist implementation — October 17, 2026
 
 0.4.6 adds persistent per-deck song membership and BPM ordering. It remains a **hardware-test candidate**, not a verified release. The application-only flash completed on October 17 at 16:05 EDT: 28 pages / 496 chunks and both CRC-valid updater finalizations were acknowledged. Normal runtime subsequently reported `bonsai-8-0.4.6`. All five song slots retained their stem presence and exact lengths; all eight metadata sectors and 51 representative audio-sector hashes matched preflash snapshots. This does not establish full audio readback or application-flash readback. The public installer now offers this exact binary as a candidate; remaining quality and recording gates prevent promotion to a fully verified release.

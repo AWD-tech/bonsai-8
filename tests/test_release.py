@@ -2,6 +2,11 @@
 import copy
 import importlib.util
 import hashlib
+import json
+import struct
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 import unittest
 
@@ -25,6 +30,84 @@ def report():
                 mirror_replies=0)
 
 class ReleaseTests(unittest.TestCase):
+    def test_046_requires_physical_feature_evidence_after_steady_playback(self):
+        with self.assertRaisesRegex(ValueError, 'physical feature evidence'):
+            release.validate_features(None, '0.4.6', 'a'*64)
+        self.assertEqual(release.validate_features(None, '0.4.5', 'a'*64), {})
+
+    def test_cli_never_stages_verified_046_with_only_steady_reports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory)
+            binary=struct.pack('<II',0x20020000,0x20009)+b'bonsai-8-0.4.6'+b'\0'*64
+            digest=hashlib.sha256(binary).hexdigest()
+            (folder/'application.bin').write_bytes(binary)
+            manifest=dict(version='0.4.6',effects=[],source_dirty=False,
+                          automatic_storage_format=False,application_address='0x20000',
+                          binary_bytes=len(binary),binary_sha256=digest,source_commit='fixture')
+            events=[dict(event='preflight',sha256=digest,bytes=len(binary),
+                         application_address='0x20000'),
+                    dict(event='response',command='0x48',reply='0x49'),
+                    dict(event='response',command='0x48',reply='0x49'),
+                    dict(event='flash_finalized'),dict(event='application_start_requested')]
+            (folder/'flash.jsonl').write_text('\n'.join(map(json.dumps,events)))
+            dry=report()
+            for item in dry['samples']:
+                item['status'].update(firmware='bonsai-8-0.4.6',effects=[])
+            usb=copy.deepcopy(dry);usb['mirror_replies']=180
+            for item in usb['samples']:item['status']['capture_active']=1
+            usb['samples'][-1]['status']['capture_packets']=20000
+            for name,value in [('manifest',manifest),('library',{'slots':[]}),
+                               ('dry',dry),('usb',usb)]:
+                (folder/(name+'.json')).write_text(json.dumps(value))
+            stage=folder/'public'
+            result=subprocess.run([sys.executable,str(ROOT/'tools/release.py'),
+                '--manifest',str(folder/'manifest.json'),
+                '--binary',str(folder/'application.bin'),
+                '--flash',str(folder/'flash.jsonl'),
+                '--library-before',str(folder/'library.json'),
+                '--library-after',str(folder/'library.json'),
+                '--dry',str(folder/'dry.json'),'--usb-mirror',str(folder/'usb.json'),
+                '--stage',str(stage)],capture_output=True,text=True)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('Missing physical feature evidence',result.stderr)
+            self.assertFalse(stage.exists())
+
+    def test_feature_evidence_rejects_host_claims_and_checks_artifact_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder=Path(directory)
+            artifact=folder/'trace.json'
+            artifact.write_text('{"test_fixture":true}\n')
+            digest=hashlib.sha256(artifact.read_bytes()).hexdigest()
+            checks={name: {'verdict':'PASS', 'environment':'physical-device',
+                          'coverage':list(coverage), 'evidence':[
+                              {'path':'trace.json','sha256':digest}]}
+                    for name,coverage in release.FEATURE_CHECKS.items()}
+            evidence={'firmware':'bonsai-8-0.4.6','binary_sha256':'a'*64,
+                      'checks':checks}
+            path=folder/'features.json'
+            def validate(value):
+                path.write_text(json.dumps(value))
+                return release.validate_features(path,'0.4.6','a'*64)
+            # This is a validator fixture, not physical test evidence.
+            summary=validate(evidence)
+            self.assertEqual(set(summary),set(release.FEATURE_CHECKS))
+            self.assertNotIn(str(folder),json.dumps(summary))
+            for name in release.FEATURE_CHECKS:
+                for field,value in [('verdict','PENDING'),('environment','host'),
+                                    ('coverage',[]),('evidence',[])]:
+                    bad=copy.deepcopy(evidence);bad['checks'][name][field]=value
+                    with self.assertRaises(ValueError):validate(bad)
+                bad=copy.deepcopy(evidence);del bad['checks'][name]
+                with self.assertRaises(ValueError):validate(bad)
+            for field,value in [('firmware','bonsai-8-0.4.5'),
+                                ('binary_sha256','b'*64)]:
+                bad=copy.deepcopy(evidence);bad[field]=value
+                with self.assertRaises(ValueError):validate(bad)
+            artifact.write_text('changed')
+            with self.assertRaisesRegex(ValueError,'hash mismatch'):validate(evidence)
+            artifact.unlink()
+            with self.assertRaisesRegex(ValueError,'missing'):validate(evidence)
+
     def test_no_effects_release_requires_zero_effect_state_and_usb(self):
         self.assertEqual(release.playback_cases({'version':'0.4.5','effects':[]}),
                          ('dry','usb_mirror'))

@@ -1,0 +1,191 @@
+{
+  "checkedAt": "2026-10-17T21:07:15.859Z",
+  "browser": "155.0.8059.80",
+  "browserChannel": "chrome",
+  "node": "v22.22.3",
+  "liveAudioSha256": "1e962565088e742c0b3fb6d6cb09e93d585909c57beb06f5f8a438da7c3b6086",
+  "scope": "Native Chromium Web Audio with synthetic stereo MediaStream and overridden device metadata. No physical USB, microphone, serial, chooser, or speaker audibility test. Chromium output muted.",
+  "monitor": {
+    "pass": true,
+    "checks": [
+      {
+        "name": "native stereo graph, waveform, input mute/unmute, and stop",
+        "pass": true,
+        "milliseconds": 290,
+        "sampleRate": 48000,
+        "expectedOutputRms": [
+          0.21213203435596428,
+          0.10606601717798214
+        ],
+        "measuredOutputRms": [
+          0.2122217232559698,
+          0.10609214972790333
+        ],
+        "measuredInputRms": 0.15913667651888214,
+        "mutedOutputRms": [
+          0,
+          0
+        ],
+        "trackState": "ended",
+        "contextState": "closed"
+      },
+      {
+        "name": "repeated start while pending and active creates one capture/graph",
+        "pass": true,
+        "milliseconds": 86,
+        "repeatedStarts": 24,
+        "captureRequests": 1,
+        "createdGraphs": 1
+      },
+      {
+        "name": "60-second native stereo monitor with periodic RMS, frequency, and clock samples",
+        "pass": true,
+        "milliseconds": 60230,
+        "wallSeconds": 60.138599999997766,
+        "audioClockSeconds": 60.138666666666666,
+        "samples": 238,
+        "sampleIntervalMilliseconds": 250,
+        "analysedFramesPerSample": 2048,
+        "expectedHz": [
+          997,
+          1499
+        ],
+        "frequencyRangeHz": [
+          [
+            996.9998941286088,
+            997.0000771059985
+          ],
+          [
+            1498.9990884743208,
+            1499.000708366423
+          ]
+        ],
+        "outputRmsRange": [
+          [
+            0.21203623203443434,
+            0.21222768335949807
+          ],
+          [
+            0.10603080821290987,
+            0.10610116654867192
+          ]
+        ],
+        "maxClockStepErrorSeconds": 0.005199999999255189,
+        "limitation": "Periodic analyser windows; not continuous dropout detection or physical USB/speaker endurance"
+      },
+      {
+        "name": "cancelled late capture cannot replace or stop a newer real graph",
+        "pass": true,
+        "milliseconds": 96,
+        "cancelledError": "AbortError",
+        "lateTrackState": "ended",
+        "measuredOutputRms": [
+          0.21208804321856148,
+          0.10608877237089376
+        ]
+      },
+      {
+        "name": "simulated track disconnect cleans graph once; stale ended event is ignored",
+        "pass": true,
+        "milliseconds": 92,
+        "endedCallbacks": 1,
+        "contextState": "closed"
+      },
+      {
+        "name": "hidden labels: unidentified probe is stopped before named stream is connected",
+        "pass": true,
+        "milliseconds": 91,
+        "captureRequests": 2,
+        "unidentifiedTrackState": "ended",
+        "createdGraphs": 1
+      },
+      {
+        "name": "reject unidentified microphone with no named input before any graph",
+        "pass": true,
+        "milliseconds": 7,
+        "error": "No SP-1 USB audio input found. Reconnect the powered-on player. If it remains missing, the audio firmware needs checking. The computer microphone was not used for playback.",
+        "captureRequests": 1,
+        "createdGraphs": 0
+      },
+      {
+        "name": "reject named device with mismatched exact identity before any graph",
+        "pass": true,
+        "milliseconds": 3,
+        "error": "Select the Bonsai 8 or SP-1 Dual Deck audio input in your browser permissions.",
+        "captureRequests": 2,
+        "createdGraphs": 0
+      },
+      {
+        "name": "reject named selection returns an unidentified microphone before any graph",
+        "pass": true,
+        "milliseconds": 2,
+        "error": "Select the Bonsai 8 or SP-1 Dual Deck audio input in your browser permissions.",
+        "captureRequests": 2,
+        "createdGraphs": 0
+      }
+    ],
+    "monitorContexts": 11,
+    "closedMonitorContexts": 11,
+    "syntheticTracks": 14,
+    "endedSyntheticTracks": 14
+  },
+  "mixer": {
+    "pass": true,
+    "output": "Measured independent-bus PCM L=0.249996454, R=0.249996454; expected .250000000\nPASS independent A/B buses, per-stem mute, deck level and stereo master: PCM .25\nPASS eight correlated full-scale stems: peak 0.999986, no clipping\nPASS padded short-stem silence and sample-clock loop without UI ticks\nALL 3 ACTUAL WEB AUDIO TESTS PASSED"
+  },
+  "recordingExport": {
+    "pass": true,
+    "origin": "Host-compiled C recorder adapter and eight-stem engine; synthetic storage, no physical SP-1",
+    "slot": 12,
+    "audioSectors": 12,
+    "stereoFrames": 1664,
+    "wavBytes": 6700,
+    "sampleRate": 24000,
+    "durationSeconds": 0.06933333333333333,
+    "outputRms": [
+      0.03305167796967459,
+      0.029853290976209524
+    ],
+    "rawWavPcmExact": true,
+    "maximumPcmError": 0.0000029280781745910645,
+    "decodedFloatTolerance": 0.000030517578125,
+    "storageReads": 17,
+    "storageWrites": 0,
+    "transferExited": true,
+    "fixture": {
+      "meta.bin": {
+        "bytes": 1024,
+        "sha256": "84f139c853c90a8c3bfa8057caec86101da1325c7888dcc92d71552b3c2aad56"
+      },
+      "x3.bin": {
+        "bytes": 1536,
+        "sha256": "309e8c7701c09851461aa6e78869abb20e5e3593701cce888e2e6e3d1e5b0a44"
+      },
+      "audio.bin": {
+        "bytes": 6144,
+        "sha256": "d8deb2879582c87da8a547b5d5dd0480d41601821a85f26fc74878e0f55827bd"
+      },
+      "expected.pcm": {
+        "bytes": 6656,
+        "sha256": "100000228c941f60bf8b154d63495e547d8b284849fe0d2e5ac07dde16932153"
+      }
+    }
+  },
+  "errors": [],
+  "requests": [
+    "https://bonsai-audio-validation.test/",
+    "https://bonsai-audio-validation.test/live-audio-browser.fixture.js",
+    "https://bonsai-audio-validation.test/public/live-audio.js",
+    "https://bonsai-audio-validation.test/offline",
+    "https://bonsai-audio-validation.test/audio.js",
+    "https://bonsai-audio-validation.test/core.js",
+    "https://bonsai-audio-validation.test/recording",
+    "https://bonsai-audio-validation.test/record-export-browser.fixture.js",
+    "https://bonsai-audio-validation.test/device-library.js",
+    "https://bonsai-audio-validation.test/playlists.js?v=20261017-playlists-01",
+    "https://bonsai-audio-validation.test/recording-fixture/meta.bin",
+    "https://bonsai-audio-validation.test/recording-fixture/x3.bin",
+    "https://bonsai-audio-validation.test/recording-fixture/audio.bin",
+    "https://bonsai-audio-validation.test/recording-fixture/expected.pcm"
+  ]
+}

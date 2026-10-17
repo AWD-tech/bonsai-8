@@ -19,6 +19,17 @@ COUNTERS = ('read_errors', 'bad_blocks', 'i2s_errors', 'crc_errors',
             'clips', 'fx_clips')
 STABLE = ('firmware', 'reset', 'slots', 'playing', 'speed',
           'mute', 'master', 'fx', 'record', 'capture_active')
+# These end-to-end checks cannot be inferred from steady playback or host tests.
+# Evidence stays private; only coverage and artifact counts enter the release.
+FEATURE_CHECKS = {
+    'playlists': ('save', 'restart', 'browse_a', 'browse_b'),
+    'recording': ('sustained_capture', 'save', 'restart', 'full_export', 'audio_quality'),
+    'live_sync': ('manual_tempo', 'beat_follow', 'phase_nudge',
+                  'pitch_preservation', 'bass_and_stereo', 'audible_quality'),
+    'browser_audio': ('named_usb_input', 'non_silent_stereo', 'monitor_output',
+                      'disconnect_reconnect'),
+    'browser_flash': ('application_only', 'runtime_version', 'library_preservation'),
+}
 
 def require(condition, message):
     if not condition:
@@ -144,6 +155,48 @@ def validate_flash(events, binary, manifest):
 def load(path):
     return json.loads(Path(path).read_text())
 
+def validate_features(path, version, binary_sha256):
+    """Require explicit physical reports; artifact hashes do not prove their truth.
+
+    A reviewer must still inspect the recordings/traces. This prevents accidental
+    promotion from only the dry/USB reports, not intentional fabricated evidence.
+    """
+    if version_tuple(version) < (0, 4, 6):
+        return {}
+    require(path is not None, 'Missing physical feature evidence: ' +
+            ', '.join(FEATURE_CHECKS))
+    path = Path(path)
+    report = load(path)
+    require(report.get('firmware') == 'bonsai-8-' + version and
+            report.get('binary_sha256') == binary_sha256,
+            'Feature evidence does not match this firmware binary')
+    checks = report.get('checks')
+    require(isinstance(checks, dict), 'Missing physical feature checks')
+    summary = {}
+    for name, required in FEATURE_CHECKS.items():
+        check = checks.get(name)
+        require(isinstance(check, dict) and check.get('verdict') == 'PASS' and
+                check.get('environment') == 'physical-device',
+                name + ': physical device PASS required; host tests are insufficient')
+        coverage = check.get('coverage')
+        require(isinstance(coverage, list) and all(isinstance(x, str) for x in coverage)
+                and set(required).issubset(coverage), name + ': incomplete coverage')
+        artifacts = check.get('evidence')
+        require(isinstance(artifacts, list) and artifacts, name + ': missing artifacts')
+        for artifact in artifacts:
+            require(isinstance(artifact, dict) and
+                    isinstance(artifact.get('path'), str) and artifact['path'] and
+                    isinstance(artifact.get('sha256'), str) and
+                    re.fullmatch(r'[a-f0-9]{64}', artifact['sha256']),
+                    name + ': invalid evidence artifact')
+            file = path.parent / artifact['path']
+            require(file.is_file(), name + ': evidence file missing')
+            require(hashlib.sha256(file.read_bytes()).hexdigest() == artifact['sha256'],
+                    name + ': evidence hash mismatch')
+        summary[name] = {'verdict': 'PASS', 'environment': 'physical-device',
+                         'coverage': list(required), 'artifact_count': len(artifacts)}
+    return summary
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--manifest', type=Path, required=True)
@@ -151,6 +204,8 @@ def main():
     p.add_argument('--flash', type=Path, required=True)
     p.add_argument('--library-before', type=Path, required=True)
     p.add_argument('--library-after', type=Path, required=True)
+    p.add_argument('--feature-evidence', type=Path,
+                   help='Required for 0.4.6+: physical feature reports and artifact hashes')
     for case in CASES:
         p.add_argument('--' + case.replace('_', '-'), type=Path)
     p.add_argument('--stage', type=Path, help='Target public firmware directory')
@@ -174,10 +229,13 @@ def main():
     require(all(getattr(a, case) is not None for case in cases),
             'Missing required playback reports: ' + ', '.join(cases))
     gates = {case: validate_playback(load(getattr(a, case)), version, case) for case in cases}
+    feature_gates = validate_features(a.feature_evidence, version,
+                                      hashlib.sha256(binary).hexdigest())
     public = {'product': 'Bonsai 8', 'version': version, 'status': 'verified',
               'bytes': len(binary), 'sha256': hashlib.sha256(binary).hexdigest(),
               'application_address': 0x20000, 'file': a.binary.name,
               'source_commit': manifest['source_commit'], 'hardware_gates': gates,
+              'feature_gates': feature_gates,
               'effects': manifest.get('effects', ['filter', 'echo', 'reverb']),
               'library_preservation': 'Same occupied slots, stem presence and lengths after application-only update; no audio readback implied',
               'limits': ['Tests cover listed steady workloads, not all possible combinations',
