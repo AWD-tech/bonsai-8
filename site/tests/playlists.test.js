@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,rmSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {encodePlaylist,decodePlaylist,playlistBank,playlistIdentity,playlistRows,writablePlaylistBank,sortedPlaylist} from '../public/playlists.js';
 const meta=Uint8Array.from({length:1024},(_,i)=>i),x3=Uint8Array.from({length:1040},(_,i)=>i*3);
 const rows=()=>Array.from({length:16},(_,i)=>({bpm:i?0:123.45,decks:i?3:1,identity:playlistIdentity(meta,x3,i+1)}));
-test('firmware and website share the exact persisted format, fingerprints and generation-wrap rule',()=>{
+test('firmware and website share the exact persisted format, fingerprints and generation-wrap rule',{skip:!existsSync(new URL('../../firmware/src/bonsai_playlist.c',import.meta.url))},()=>{
  const dir=mkdtempSync(join(tmpdir(),'bonsai-playlist-')),root=fileURLToPath(new URL('../../',import.meta.url));
  try{const banks=[encodePlaylist(rows(),0xffffffff),encodePlaylist(rows(),0)];writeFileSync(join(dir,'banks.bin'),Buffer.concat(banks));execFileSync('cc',['-std=c11','-O1','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-I',join(root,'firmware/src'),join(root,'tests/test_playlist.c'),join(root,'firmware/src/bonsai_playlist.c'),'-o',join(dir,'test')]);execFileSync(join(dir,'test'),[join(dir,'banks.bin')]);assert.equal(playlistBank(banks),1);}finally{rmSync(dir,{recursive:true,force:true});}
 });
