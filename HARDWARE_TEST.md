@@ -2,7 +2,9 @@
 
 ## Playlist implementation — October 17, 2026
 
-0.4.6 adds persistent per-deck song membership and BPM ordering. It is an **unflashed hardware-test candidate**, not a verified upgrade. No SP-1 was detected during this implementation; no device writes were attempted. The live installer remains 0.4.5 pending hardware checks.
+0.4.6 adds persistent per-deck song membership and BPM ordering. It remains a **hardware-test candidate**, not a verified release. The application-only flash completed on October 17 at 16:05 EDT: 28 pages / 496 chunks and both CRC-valid updater finalizations were acknowledged. Normal runtime subsequently reported `bonsai-8-0.4.6`. All five song slots retained their stem presence and exact lengths; all eight metadata sectors and 51 representative audio-sector hashes matched preflash snapshots. This does not establish full audio readback or application-flash readback. The live installer remains 0.4.5 pending playback and feature checks.
+
+The actual website `DeviceLibrary.savePlaylists` implementation passed a serial hardware test with temporary A/B memberships and test BPM labels, read back correctly through the firmware library response. Only playlist banks 6/7 were written. Restart persistence and physical browsing tests are in progress; the temporary labels will be restored to defaults after testing. Private evidence: `flash-20261017-160526.jsonl`, `bonsai-0.4.6-postflash.json`, and `playlist-save-test.json`.
 
 Host checks passed: nine C sanitizer suites, 50 Python tests and 156 website tests. New checks cover real FUNCTION/rocker replay with independent playlists; matching C/JavaScript binary formats and descriptor CRCs; generation wrap and corrupt-bank fallback; unknown-schema rejection; stale-library rejection; exclusive verified saves to sectors 6/7; no writes to audio/index/grid/X3 during playlist saves; deletion and identical slot reuse; and UI editing/recording/disconnect guards. Browser checks confirmed live preview reordering and membership changes, with no horizontal overflow at 390 px. These use simulated storage/control inputs, not hardware playback.
 

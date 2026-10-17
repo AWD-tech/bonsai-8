@@ -8,7 +8,7 @@ Private development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). 
 
 ## Release status
 
-**0.4.6 adds saved A/B playlists, ordered by source BPM, for physical FUNCTION + rocker browsing.** Configure each deck under On your player on the companion site. Replacing one deck’s song stops and cues only that deck; the other continues playing. See [playlist controls and storage contract](docs/PLAYLISTS.md). This build has not been flashed or tested on hardware yet.
+**0.4.6 adds saved A/B playlists, ordered by source BPM, for physical FUNCTION + rocker browsing.** Configure each deck under On your player on the companion site. Replacing one deck’s song stops and cues only that deck; the other continues playing. See [playlist controls and storage contract](docs/PLAYLISTS.md). This build is flashed: its runtime version, five song entries, metadata and representative audio-sector preservation checks passed. Playlist saving also passed; restart persistence, physical browsing and playback checks remain pending.
 
 **0.4.5 remains the published hardware-test candidate.** The new candidate removes all effects and filters. It replaces bytewise USB control replies with bounded, batched transmission, preserves queued button/light events under backpressure, and guards recording against a second trigger before the complete shortcut is released. Site changes reject mismatched song-load acknowledgements and recover correctly from recording failures.
 
