@@ -1,22 +1,60 @@
 {
   "product": "Bonsai 8",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "status": "candidate",
-  "bytes": 111788,
-  "sha256": "7c73ac8dd601f537f962c5e3cd50bacd9a337f330f8b36b817bdcfe4074344f2",
+  "bytes": 112904,
+  "sha256": "8a421d100e4b91a9b1ceefa051d09e28e94951037cdd6c16d1c37b4dae160a32",
   "application_address": 131072,
-  "file": "bonsai-8-0.4.5.bin",
-  "source_tree": "27f2903a08d69dfe5ff8debf01e1682b842bc3e1",
-  "known_issues": [
-    "Live sync requires tapped beat grids on both songs. Wide tempo changes can repeat or smear transients.",
-    "This candidate passed host tests; physical USB/mirroring, live sync and sustained recording validation are pending."
+  "file": "bonsai-8-0.4.6.bin",
+  "source_commit": "9ea68e5015a3dc3477744522f0830bba9106d7a2",
+  "hardware_gates": {
+    "dry": {
+      "seconds": 20.036137125000096,
+      "samples": 38,
+      "mirror_replies": 0,
+      "dropouts": [
+        0,
+        0
+      ]
+    },
+    "usb_mirror": {
+      "seconds": 20.030032000000002,
+      "samples": 38,
+      "mirror_replies": 181,
+      "dropouts": [
+        0,
+        0
+      ]
+    }
+  },
+  "effects": [],
+  "library_preservation": "Five occupied slots retained exact stem presence and lengths; all eight metadata sectors and 51 representative audio sectors matched the preflash snapshot after restoring temporary test playlists. Not full audio readback.",
+  "limits": [
+    "Tests cover listed steady workloads, not all possible combinations",
+    "Updater acknowledgements verified; flash readback unavailable",
+    "USB/mirroring result requires the companion site update dated 2026-10-17; old fast polling produced underruns",
+    "Tests do not establish long-session endurance, live sync quality, sustained recording or actual browser speaker output",
+    "A browsing checks compare before/after windows; B transitions were continuously sampled"
   ],
+  "songs_preserved_by_update": true,
   "features": [
+    "Separate persistent A/B playlists sorted by source BPM",
+    "Independent physical song browsing with the other deck playing",
     "No effects or filters",
-    "Pitch-preserving manual tempo and tapped-grid beat sync",
-    "Independent full-library selection for both decks",
-    "Standalone mix recording with complete-shortcut-release guard",
-    "Batched USB control and mirror transmission"
+    "Pitch-preserving tempo and tapped-grid sync (hardware quality validation pending)",
+    "Standalone mix recording (sustained hardware validation pending)"
   ],
-  "songs_preserved_by_update": true
+  "known_issues": [
+    "Playlist save, restart persistence and browsing passed on a physical SP-1. All five original song entries and sampled audio sectors were preserved.",
+    "Eight full stems passed twenty-second dry and USB-audio-plus-mirroring tests using the updated site with 100 ms mirror polling and a 160 ms display buffer. Older 30 ms polling caused dropouts.",
+    "Sustained recording/save/export, live-sync sound quality, browser speaker playback and browser-driven flashing still need hardware validation.",
+    "Saved BPM labels order playlists; live sync needs user-tapped beat grids. Wide tempo changes can repeat or smear transients."
+  ],
+  "playlist_checks": {
+    "save_readback": "passed",
+    "restart_persistence": "passed",
+    "deck_b_browse_and_wrap": "passed with continuous transition samples",
+    "deck_a_browse_and_wrap": "passed before/after checks",
+    "test_settings_restored": true
+  }
 }
