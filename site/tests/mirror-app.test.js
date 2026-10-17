@@ -26,7 +26,7 @@ const state={firmware:'sp1-dual-deck-0.3',deck:0,master:64,gains:[256,256,256,25
 // A physical PLAY tap has already released while the song continues playing.
 const ui={seq:1,ms:1000,buttons:{play:false,function:true,track0:false,track1:false,track2:false,track3:false,forward:false,rewind:false,volumeUp:false,volumeDown:false},faders:[.1,.2,.3,.4],trackLeds:[1,0,1,0],statusLeds:[0,1,0,1]};
 test('physical release, fader pickup and both LED rows survive the application render loop',async()=>{
- const app=appHarness();await app.connection.onControls(null,null,state);app.connection.onMirror({mirror:1,now:1000,lost:0,frames:[ui]});app.frame();
+ const app=appHarness();await app.connection.onControls(null,null,state);app.connection.onMirror({mirror:1,now:1000,lost:0,frames:[ui]});app.frame(160);
  assert.equal(app.device.buttons.play,false,'PLAY must release even while the song keeps playing');
  assert.equal(app.device.buttons.function,true,'FUNCTION must mirror its physical held state');
  assert.deepEqual([...app.device.targets],ui.faders,'physical fader positions differ from deck gain during pickup');

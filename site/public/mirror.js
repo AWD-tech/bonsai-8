@@ -8,7 +8,7 @@ export function mirrorPacket(line){
  return {...p,frames:p.frames.map(f=>({seq:f[0],ms:f[1],buttons:Object.fromEntries(MIRROR_KEYS.map((key,i)=>[key,Boolean(f[2]&(1<<i))])),faders:f.slice(3,7).map(v=>v/256),trackLeds:f.slice(7,11).map(v=>v/1000),statusLeds:f.slice(11,15).map(v=>v/1000)}))};
 }
 export class MirrorTimeline {
- constructor(apply){this.apply=apply;this.reset();}
+ constructor(apply,bufferMs=160){this.apply=apply;this.bufferMs=bufferMs;this.reset();}
  reset(){this.queue=[];this.lastSeq=null;this.lastNow=null;this.lastReceived=null;this.lost=null;this.stale=false;this.target=null;}
  push(packet,received){
   const gap=this.lastReceived!==null&&received-this.lastReceived>1000;
@@ -16,9 +16,9 @@ export class MirrorTimeline {
   const elapsed=this.lastNow===null?0:((packet.now-this.lastNow)>>>0);
   const restart=elapsed>0x7fffffff;
   if(gap||loss||restart){this.queue=[];this.lastSeq=null;this.target=null;}
-  // A small fixed display buffer keeps short press/release and blink timing
-  // when several hardware edges arrive in the same USB read.
-  this.target=this.target===null?received+60:Math.min(this.target+elapsed,received+60);
+  // Cover the 100 ms audio-monitoring poll interval plus USB scheduling slack,
+  // so a brief press/release received together still appears for its duration.
+  this.target=this.target===null?received+this.bufferMs:Math.min(this.target+elapsed,received+this.bufferMs);
   this.lastNow=packet.now;this.lastReceived=received;this.lost=packet.lost;this.stale=false;
   const frames=gap||loss||restart?packet.frames.slice(-1):packet.frames;
   for(const f of frames){

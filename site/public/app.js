@@ -4,10 +4,10 @@ import { setupBrowserMixer, exportSnapshot } from './browser-mixer.js?v=20261003
 import { setupMatching } from './match.js?v=20261003-match-01';
 import { Device } from './device.js?v=20261002-bonsai-01';
 import { NAMES, time, clamp, wav, decodeControls } from './core.js';
-import { SP1Connection, selectedDeckControls } from './protocol.js?v=20261003-load-ack-02';
+import { SP1Connection, selectedDeckControls } from './protocol.js?v=20261017-usb-cadence-01';
 import { LiveSP1Audio, deviceProgress } from './live-audio.js?v=20261003-monitor-cancel-04';
 import { DEFAULT_BODY_HEIGHT } from './control-height.js?v=20261002-bonsai-01';
-import { MirrorTimeline, MIRROR_KEYS } from './mirror.js?v=20261002-bonsai-01';
+import { MirrorTimeline, MIRROR_KEYS } from './mirror.js?v=20261017-usb-cadence-01';
 import { zip } from './vendor/fflate.js';
 const $ = id => document.getElementById(id);
 const audio = new AudioEngine(); let device, original, songName='', mode='empty', pitch=0, worker, busy=false, importBusy=false, exportBusy=false, toastTimer;

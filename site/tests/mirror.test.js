@@ -12,7 +12,7 @@ test('physical telemetry validates shape and maps all ten switches, positions an
  assert.equal(parse(Array.from({length:17},(_,i)=>row(i,1000))),null);
 });
 test('a tap and blink between polls retain their timing, with no stuck release',()=>{
- const seen=[],t=new MirrorTimeline(f=>seen.push(f));
+ const seen=[],t=new MirrorTimeline(f=>seen.push(f),60);
  t.push(parse([row(1,1000)]),100);t.tick(160);
  t.push(parse([row(2,1008,16),row(3,1040,0)],1045),145);
  t.tick(168);assert.equal(seen.at(-1).buttons.play,true);
@@ -21,12 +21,47 @@ test('a tap and blink between polls retain their timing, with no stuck release',
  assert.deepEqual(seen.map(f=>f.ms),[1000,1008,1040]);
 });
 test('stale USB releases controls, loss resynchronizes, and counter wrap is accepted',()=>{
- const seen=[],t=new MirrorTimeline(f=>seen.push(f));
+ const seen=[],t=new MirrorTimeline(f=>seen.push(f),60);
  t.push(parse([row(0xffffffff,0xfffffff0,16)],0xfffffff0),100);t.tick(160);
  t.push(parse([row(0,16,0)],20),136);t.tick(196);assert.equal(seen.at(-1).buttons.play,false);
  t.tick(1200);assert.equal(seen.at(-1),null);
  assert.equal(t.push(parse([row(2,1020,16),row(3,1052)],1060,2),1210),true);
  t.tick(1300);assert.equal(seen.at(-1).buttons.play,false);assert.equal(seen.filter(x=>x?.seq===2).length,0);
+});
+test('a short tap received in a 100 ms batch remains visible for its original duration',()=>{
+ const seen=[],t=new MirrorTimeline(f=>seen.push(f));
+ t.push(parse([row(1,1000)]),100);t.tick(260);
+ t.push(parse([row(2,1008,16),row(3,1040,0)],1100),200);
+ t.tick(267);assert.equal(seen.at(-1).buttons.play,false);
+ t.tick(268);assert.equal(seen.at(-1).buttons.play,true);
+ t.tick(299);assert.equal(seen.at(-1).buttons.play,true);
+ t.tick(300);assert.equal(seen.at(-1).buttons.play,false);
+});
+test('the real poll loop reduces mirror traffic when USB audio starts and restores it after stopping',async t=>{
+ t.mock.timers.enable({apis:['setTimeout','Date'],now:1000});
+ let capture=1,controller,seq=0;
+ const writes=[];
+ const state=()=>({firmware:'bonsai-8-0.4.6',mirror:1,capture_active:capture,deck:0,master:64,gains:Array(8).fill(256),mute:[0,0],playing:[1,1],speed:[65536,65536],slots:[2,4]});
+ const port={readable:new ReadableStream({start(c){controller=c;}}),writable:new WritableStream({write(raw){
+  const command=new TextDecoder().decode(raw);writes.push({command,time:Date.now()});
+  const value=command==='DDSTAT?\n'?state():{mirror:1,now:Date.now(),lost:0,frames:[row(++seq,Date.now())]};
+  controller.enqueue(new TextEncoder().encode(JSON.stringify(value)+'\n'));
+ }}),open:async()=>{},setSignals:async()=>{},close:async()=>{}};
+ const prev=Object.getOwnPropertyDescriptor(globalThis,'navigator');Object.defineProperty(globalThis,'navigator',{configurable:true,value:{serial:{requestPort:async()=>port}}});
+ const connection=new SP1Connection(()=>{},()=>{});
+ const settle=async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
+ const mirrors=()=>writes.filter(w=>w.command==='DDMIR?\n');
+ try{
+  await connection.connect();await settle();const initial=mirrors().length;
+  t.mock.timers.tick(99);await settle();assert.equal(mirrors().length,initial,'USB capture must not poll every 30 ms');
+  t.mock.timers.tick(1);await settle();assert.equal(mirrors().length,initial+1);
+  capture=0;t.mock.timers.tick(500);await settle();const stopped=mirrors().length;
+  t.mock.timers.tick(29);await settle();assert.equal(mirrors().length,stopped);
+  t.mock.timers.tick(1);await settle();assert.equal(mirrors().length,stopped+1,'normal polling should resume after capture stops');
+ }finally{
+  await connection.disconnect();t.mock.timers.tick(100);await connection.pollTask;
+  if(prev)Object.defineProperty(globalThis,'navigator',prev);else delete globalThis.navigator;
+ }
 });
 test('0.3 requests the read-only physical feed and routes fragmented replies separately from mixer state',async()=>{
  const state={firmware:'sp1-dual-deck-0.3',mirror:1,deck:0,master:64,gains:[256,256,256,256,0,0,0,0],mute:[0,0],playing:[1,0],speed:[65536,65536],slots:[1,2]};

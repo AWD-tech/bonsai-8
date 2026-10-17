@@ -1,4 +1,4 @@
-import {mirrorPacket} from './mirror.js?v=20260930-live-03';
+import {mirrorPacket} from './mirror.js?v=20261017-usb-cadence-01';
 // CRC lookup table from SP-1 Tape Looper, Copyright (c) 2026 chattock, MIT.
 const CRC8_TABLE = new Uint8Array([
   0xea,0xd4,0x96,0xa8,0x12,0x2c,0x6e,0x50,0x7f,0x41,0x03,0x3d,0x87,0xb9,0xfb,0xc5,
@@ -77,7 +77,7 @@ export class SP1Connection {
   async connect(mode = 'dual') {
     if (!navigator.serial) throw new Error('Hardware connection needs Chrome or Edge on a computer.');
     if (this.port) throw new Error('Disconnect the current player first.');
-    this.mode = mode; this.fullMirror = false;
+    this.mode = mode; this.fullMirror = false; this.captureActive = false;
     this.port = await navigator.serial.requestPort();
     try {
       try { await this.port.open({ baudRate: 115200 }); }
@@ -128,7 +128,10 @@ export class SP1Connection {
               const line = new TextDecoder().decode(new Uint8Array(buffer)); buffer = [];
               const parser={mirror:mirrorPacket,status:dualDeckStatus,library:libraryPacket,load:loadPacket}[this.pending?.kind];const state=parser?.(line);
               if (state && ['status','mirror','library','load'].includes(this.pending?.kind)) {
-                if(this.pending.kind==='status')this.recordSaving=[1,2,3].includes(state.record?.state);
+                if(this.pending.kind==='status'){
+                  this.recordSaving=[1,2,3].includes(state.record?.state);
+                  this.captureActive=state.capture_active===1;
+                }
                 const pending = this.pending; this.pending = null; clearTimeout(pending.timer); pending.resolve(state);
               }
             } else if (buffer.length < 4096) buffer.push(byte);
@@ -176,7 +179,9 @@ export class SP1Connection {
           if(this.fullMirror){
             this.onMirror(await this.mirrorCommand());
             if(Date.now()-lastStatus>=500){await this.onControls(null,null,await this.statusCommand());lastStatus=Date.now();}
-            await delay(30);
+            // Hardware comparison: 30 ms polls starve eight-stem playback
+            // with USB audio active; 100 ms polls retain queued physical edges.
+            await delay(this.captureActive?100:30);
           }else{await this.onControls(null, null, await this.statusCommand());await delay(120);}
           continue;
         }
