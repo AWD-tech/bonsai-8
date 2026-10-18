@@ -1,5 +1,11 @@
 # Physical test — 2026-09-30
 
+## Prepared 0.4.7 candidate — October 18, 2026
+
+0.4.7 is built for the next device session and has **not been flashed or physically tested**. Its host audio screens now pass the reproduced 0.4.6 bass, stereo and isolated-attack failures, including 105 tone/stereo cases, seven pulse cases and two sustained-background guards. Ten simulated minutes with eight stems pass without underruns/clips. Nine C sanitizer suites, 59 Python tests and 158 website tests pass. These do not measure the MCU's real-time load or establish listening quality.
+
+The application is 114,328 bytes; RAM is 255,508 / 262,144 bytes. SHA-256: `bc263e96ff5d2aaab4b102355b093dba9402514647ff836e0f3d1992170a7437`. See [the detailed report](docs/sync-validation-047.md) and [the physical checklist](docs/DEVICE_CHECKLIST_047.md). Existing 0.4.6 device results below remain historical; they do not certify this new binary. The public installer remains on the previously published candidate until the new build's physical gates are addressed.
+
 ## Unattended follow-up — October 17, 2026
 
 No SP-1 was connected for this follow-up. Maximum-length recording/save/export and native browser audio passed host/synthetic checks, but rendered live-sync audio failed pitch/spectral and pulse-alignment screens. These are software findings, not new device results. See [the complete unattended report](docs/UNATTENDED_VALIDATION_046.md) and its linked reproducible measurements. The existing 0.4.6 binary remains a candidate; the website and GitHub notes expose these findings. Recording publication also has a confirmed final-acknowledgement ambiguity: a failed final flush/readback can leave a visible take. Physical recording and browser gates are not closed by the host results.

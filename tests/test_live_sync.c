@@ -24,6 +24,8 @@ static uint64_t charged_work;
 static unsigned max_calls;
 static uint32_t output_clock,loop_position[2],loop_length[2];
 static uint32_t pulse_period[2];
+static uint32_t pulse_width[2],pulse_anchor[2];
+static bool pulse_background;
 
 static void sine_wave(unsigned deck,double left,double right,bool inverted)
 {
@@ -39,6 +41,8 @@ static void setup(unsigned decks)
  dd_init(&engine);atomic_store(&engine.master,decks==2?128:256);
  output_clock=0;charged_work=0;max_calls=0;
  pulse_period[0]=pulse_period[1]=0;
+ pulse_width[0]=pulse_width[1]=48;pulse_anchor[0]=pulse_anchor[1]=0;
+ pulse_background=false;
  for(unsigned k=0;k<decks;k++) {
   struct dd_deck *d=&engine.deck[k];
   dd_reset_deck(d,15);dd_set_stretch(d,true);atomic_store(&d->playing,1);
@@ -66,9 +70,10 @@ static bool refill_one(void)
  struct dd_deck *d=&engine.deck[k];uint32_t written=atomic_load(&d->voice[stem].written);
  for(unsigned i=0;i<8*248;i++) {
   if(pulse_period[k]) {
-   unsigned position=(written+i)%pulse_period[k];
-   int16_t amplitude=position<48?10000:0;
-   input[i]=k?(struct dd_frame){0,amplitude}:(struct dd_frame){amplitude,0};
+   unsigned position=((written+i)%pulse_period[k]+pulse_period[k]-pulse_anchor[k])%pulse_period[k];
+   int16_t amplitude=position<pulse_width[k]?10000:0;
+   input[i]=pulse_background?wave[k][(written+i)%NATIVE_RATE]:(struct dd_frame){0,0};
+   if(k)input[i].r+=amplitude;else input[i].l+=amplitude;
   } else input[i]=wave[k][(written+i)%NATIVE_RATE];
  }
  assert(dd_push(d,stem,input,8*248));return true;
@@ -157,7 +162,7 @@ static struct spectrum spectrum(unsigned channel,double expected)
 static unsigned quality(void)
 {
  static const uint32_t rates[]={32768,49152,63570,65536,67502,73728,81920};
- static const unsigned frequencies[]={20,30,40,55,80,110,220,440};
+ static const unsigned frequencies[]={20,30,40,55,80,110,220,440,880,1500,3000};
  unsigned failures=0;
  puts("tone_hz,ratio,peak_hz,rms_ratio,energy_within_2pct_or_2hz,screen");
  for(unsigned f=0;f<sizeof(frequencies)/sizeof(*frequencies);f++)for(unsigned r=0;r<sizeof(rates)/sizeof(*rates);r++) {
@@ -178,17 +183,26 @@ static unsigned quality(void)
  }
  /* Independent content on L/R challenges the shared grain choice; pure
   * antiphase above alone could hide accidental mono analysis/cancellation. */
- const unsigned stereo_right[]={220,263};
- for(unsigned p=0;p<2;p++)for(unsigned r=0;r<sizeof(rates)/sizeof(*rates);r++) {
-  sine_wave(0,55,stereo_right[p],false);setup(1);assert(dd_set_tempo(&engine.deck[0],rates[r]));
+ const struct {unsigned left,right;double left_gain,right_gain;} stereo[]={
+  {55,220,1,1},{55,263,1,1},{263,55,1,1},{55,263,1,.25}
+ };
+ for(unsigned p=0;p<sizeof(stereo)/sizeof(*stereo);p++)for(unsigned r=0;r<sizeof(rates)/sizeof(*rates);r++) {
+  sine_wave(0,stereo[p].left,stereo[p].right,false);
+  for(unsigned i=0;i<NATIVE_RATE;i++) {
+   wave[0][i].l=(int16_t)lround(wave[0][i].l*stereo[p].left_gain);
+   wave[0][i].r=(int16_t)lround(wave[0][i].r*stereo[p].right_gain);
+  }
+  setup(1);assert(dd_set_tempo(&engine.deck[0],rates[r]));
   for(unsigned n=0;n<OUTPUT_RATE;n+=BLOCK)render(BLOCK);
   for(unsigned i=0;i<FFT_N;i+=BLOCK){render(BLOCK);memcpy(captured+i*2,output,sizeof(output));}
-  struct spectrum left=spectrum(0,55),right=spectrum(1,stereo_right[p]);
-  bool pass=fabs(left.peak_hz/55-1)<=.01&&fabs(right.peak_hz/stereo_right[p]-1)<=.01&&
+  struct spectrum left=spectrum(0,stereo[p].left),right=spectrum(1,stereo[p].right);
+  left.rms_ratio/=stereo[p].left_gain;right.rms_ratio/=stereo[p].right_gain;
+  bool pass=fabs(left.peak_hz/stereo[p].left-1)<=.01&&fabs(right.peak_hz/stereo[p].right-1)<=.01&&
    left.rms_ratio>=.7&&right.rms_ratio>=.7&&left.rms_ratio<=1.1&&right.rms_ratio<=1.1&&
    left.near_energy>=.9&&right.near_energy>=.9;
   if(!pass)failures++;
-  printf("stereo55/%u,%.6f,%.3f/%.3f,%.4f/%.4f,%.4f/%.4f,%s\n",stereo_right[p],rates[r]/65536.,
+  printf("stereo%u/%u-gain%.2f/%.2f,%.6f,%.3f/%.3f,%.4f/%.4f,%.4f/%.4f,%s\n",
+   stereo[p].left,stereo[p].right,stereo[p].left_gain,stereo[p].right_gain,rates[r]/65536.,
    left.peak_hz,right.peak_hz,left.rms_ratio,right.rms_ratio,left.near_energy,right.near_energy,pass?"PASS":"FAIL");
  }
  for(unsigned side=0;side<2;side++) {
@@ -197,7 +211,8 @@ static unsigned quality(void)
    render(BLOCK);for(unsigned i=0;i<BLOCK;i++)assert(!output[i*2+(side?0:1)]);
   }
  }
- printf("QUALITY: %u synthetic screening failures; antiphase exact in all 56 mono-tone cases; left/right silence isolation exact\n",failures);
+ printf("QUALITY: %u synthetic screening failures; antiphase exact in all %zu mono-tone cases; left/right silence isolation exact\n",failures,
+  sizeof(frequencies)/sizeof(*frequencies)*sizeof(rates)/sizeof(*rates));
  return failures;
 }
 
@@ -281,13 +296,20 @@ static void range_matrix(void)
  printf("RANGE: 245 BPM/master-tempo combinations; %u accepted exactly, %u rejected without clamped success\n",accepted,rejected);
 }
 
-static unsigned pulse_phase(void)
+struct pulse_case {
+ const char *name;
+ uint32_t master_period,follower_period,width,master_anchor,follower_anchor;
+};
+static unsigned pulse_phase_case(const struct pulse_case *test)
 {
- setup(2);pulse_period[0]=12000;pulse_period[1]=9600;
+ setup(2);pulse_period[0]=test->master_period;pulse_period[1]=test->follower_period;
+ pulse_width[0]=pulse_width[1]=test->width;
+ pulse_anchor[0]=test->master_anchor;pulse_anchor[1]=test->follower_anchor;
  struct bonsai_sync sync;assert(bonsai_sync_init(&sync,32768,81920));
  for(unsigned k=0;k<2;k++) {
   assert(bonsai_sync_song(&sync,k,k+1,loop_length[k]));
-  assert(bonsai_sync_set_grid(&sync,k,k+1,k?150000:120000,0));
+  uint32_t bpm=(1440000000u+pulse_period[k]/2)/pulse_period[k];
+  assert(bonsai_sync_set_grid(&sync,k,k+1,bpm,pulse_anchor[k]));
  }
  observe(&sync);assert(bonsai_sync_follow(&sync,1)==BONSAI_SYNC_OK);
  bool high=false;unsigned pulses=0,short_gaps=0,previous_onset=0;
@@ -301,10 +323,10 @@ static unsigned pulse_phase(void)
   for(unsigned i=0;i<BLOCK;i++) {
    bool current=output[i*2+1]>1000;
    if(current&&!high) {
-    /* Deck A is dry 120 BPM with an exact pulse every 24000 output frames.
-     * Linear interpolation crosses this threshold on its first whole frame.
-     * Compare each actually rendered B onset to its nearest A beat. */
-    int phase=(int)((start+i)%24000);if(phase>12000)phase-=24000;
+    /* The dry master supplies an exact independent audible-onset oracle. */
+    uint32_t period=2*test->master_period,anchor=2*test->master_anchor;
+    int phase=(int)(((start+i)%period+period-anchor)%period);
+    if(phase>(int)period/2)phase-=(int)period;
     if(pulses&&start+i-previous_onset<OUTPUT_RATE/20)short_gaps++;
     previous_onset=start+i;
     double ms=fabs(phase/48.);sum_ms+=ms;if(ms>maximum_ms)maximum_ms=ms;pulses++;
@@ -312,13 +334,56 @@ static unsigned pulse_phase(void)
    high=current;
   }
  }
- /* The controller's 1/64-beat LOCKED threshold at 120 BPM is 7.8125 ms.
-  * This separate screen asks whether audible transients meet that threshold;
-  * it intentionally does not equate a nominal-clock lock to an audio pass. */
- bool pass=pulses>=59&&pulses<=61&&maximum_ms<=7.8125;
- printf("PULSE: 120/150 BPM, 0.8x follower, last 30s: %u onsets (expected 60), %u gaps below 50ms, mean/max audible phase %.3f/%.3f ms, max nominal %.6f beats; audible <=1/64-beat screen %s\n",
-  pulses,short_gaps,pulses?sum_ms/pulses:0,maximum_ms,max_nominal,pass?"PASS":"FAIL");
+ /* Keep the original 1/64-beat lock tolerance; vary content, never the gate. */
+ double expected=30.*NATIVE_RATE/test->master_period;
+ double allowed_ms=test->master_period/24./64;
+ bool pass=fabs(pulses-expected)<=1&&short_gaps==0&&maximum_ms<=allowed_ms;
+ printf("PULSE %s: ratio %.6f, width %u, anchors %u/%u, last 30s: %u onsets (expected %.2f), %u gaps below 50ms, mean/max audible phase %.3f/%.3f ms, max nominal %.6f beats; audible <=1/64-beat screen %s\n",
+  test->name,test->follower_period/(double)test->master_period,test->width,test->master_anchor,test->follower_anchor,
+  pulses,expected,short_gaps,pulses?sum_ms/pulses:0,maximum_ms,max_nominal,pass?"PASS":"FAIL");
  return pass?0:1;
+}
+
+static unsigned pulse_phase(void)
+{
+ const struct pulse_case cases[]={
+  {"original",12000,9600,48,0,0},
+  {"half-shifted",12000,6000,24,1200,600},
+  {"slow-wide",12000,7200,96,6000,3600},
+  {"fast-wide",12000,15000,192,9000,11250},
+  {"fractional-fast",12000,13500,48,3000,3375},
+  {"one-sample",12000,9600,1,512,410},
+  {"90-to120-bpm",16000,12000,48,4000,3000}
+ };
+ unsigned failures=0;
+ for(unsigned i=0;i<sizeof(cases)/sizeof(*cases);i++)failures+=pulse_phase_case(&cases[i]);
+ return failures;
+}
+
+static unsigned transient_background_guard(void)
+{
+ unsigned failures=0;const uint32_t ratios[]={49152,81920};
+ for(unsigned r=0;r<2;r++) {
+  sine_wave(0,220,220,true);
+  for(unsigned i=0;i<NATIVE_RATE;i++){wave[0][i].l/=10;wave[0][i].r/=10;}
+  setup(1);pulse_period[0]=12000;pulse_background=true;
+  assert(dd_set_tempo(&engine.deck[0],ratios[r]));
+  for(unsigned i=0;i<OUTPUT_RATE;i+=BLOCK) {
+   render(BLOCK);assert(!engine.stretch_work.transient);
+  }
+  for(unsigned i=0;i<FFT_N;i+=BLOCK) {
+   render(BLOCK);assert(!engine.stretch_work.transient);
+   memcpy(captured+i*2,output,sizeof(output));
+  }
+  /* Right contains only the quiet sustained tone; the loud pulse is left.
+   * Its tail must retain ordinary overlap, preserving the background tone. */
+  struct spectrum tone=spectrum(1,220);tone.rms_ratio*=10;
+  bool pass=fabs(tone.peak_hz/220-1)<=.01&&tone.rms_ratio>=.7&&tone.rms_ratio<=1.1&&tone.near_energy>=.9;
+  if(!pass)failures++;
+  printf("BACKGROUND: 10:1 pulse/tone, ratio %.6f, peak %.3fHz, RMS %.4f, near-energy %.4f, no transient-tail replacement, %s\n",
+   ratios[r]/65536.,tone.peak_hz,tone.rms_ratio,tone.near_energy,pass?"PASS":"FAIL");
+ }
+ return failures;
 }
 
 int main(int argc,char **argv)
@@ -329,5 +394,5 @@ int main(int argc,char **argv)
  setvbuf(stdout,NULL,_IOLBF,0);
  if(!only_quality){range_matrix();tapped_follow();sustained_streaming();}
  if(only_functional)return 0;
- unsigned failures=pulse_phase();failures+=quality();return failures?1:0;
+ unsigned failures=pulse_phase();failures+=transient_background_guard();failures+=quality();return failures?1:0;
 }

@@ -7,7 +7,7 @@
 #define BS_STEMS 4u
 #define BS_SEQUENCE 1440u
 #define BS_OVERLAP 384u
-#define BS_SEARCH 480u
+#define BS_SEARCH 600u
 #define BS_HOP (BS_SEQUENCE-BS_OVERLAP)
 #define BS_CACHE (BS_OVERLAP+2u*BS_SEARCH)
 struct bs_frame { int16_t l,r; };
@@ -35,8 +35,14 @@ struct bs_work {
  struct bs_state *owner;
  struct bs_plan plan;
  uint32_t sequence,first,count,index,offset,limit,best,refine_end;
- float dot,energy,highest,reference_energy,reference_peak;
+ float dot[2],energy[2],highest,reference_energy,reference_peak;
+ float balance[2],reference_power[2];
+ int8_t sign[2];
+ uint8_t crossings[2];
  uint8_t stage,stride;
+ uint32_t scan_count,onset,onset_last,onset_count,nonquiet_count;
+ float scan_energy,scan_peak;
+ bool transient;
 };
 typedef struct bs_frame (*bs_read_fn)(void *context,unsigned stem,uint32_t source);
 void bs_init(struct bs_state *s,uint32_t first,bool enabled);

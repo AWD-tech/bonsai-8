@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: MIT
- * Bounded joint-stereo WSOLA: 60 ms source sequence, 16 ms overlap, +/-20 ms
+ * Bounded joint-stereo WSOLA: 60 ms source sequence, 16 ms overlap, +/-25 ms
  * seek. The long sequence streams from source rings. Source clock is nominal;
  * retained ring data and the selected waveform position are separate clocks.
  */
 #include "bonsai_stretch.h"
 #include <math.h>
+#include <stddef.h>
 #include <string.h>
-enum { CACHE=1,REFERENCE,COARSE,REFINE,TAIL,PUBLISH };
+enum { CACHE=1,LOOKAHEAD,REFERENCE,TRANSIENT,COARSE,REFINE,TAIL,PUBLISH };
 static bool published(uint32_t p,uint32_t n,uint32_t oldest,uint32_t written)
 {return p-oldest<0x80000000u&&written-p<0x80000000u&&written-p>=n;}
 void bs_init(struct bs_state *s,uint32_t first,bool enabled)
@@ -43,11 +44,16 @@ static bool begin(struct bs_state *s,struct bs_work *w,uint32_t oldest,uint32_t 
  if(atomic_load_explicit(&s->sequence,memory_order_acquire)!=seq)return false;
  uint32_t first=p.nominal-s->first<BS_SEARCH?s->first:p.nominal-BS_SEARCH;
  uint32_t count=p.nominal-first+BS_SEARCH+BS_OVERLAP;
+ uint32_t scan_count=p.nominal-first+BS_HOP+BS_OVERLAP;
  if(!active) {first=p.nominal;count=2;}
  if(!published(first,count,oldest,written)||
     (active&&!published(chosen+BS_HOP,BS_OVERLAP,oldest,written)))return false;
- memset(w,0,sizeof(*w));w->owner=s;w->plan=p;w->sequence=seq;
+ /* Cache/reference samples are overwritten before use. Clear only control
+  * state so starting one budgeted slice never clears the entire scratch. */
+ memset(&w->owner,0,sizeof(*w)-offsetof(struct bs_work,owner));
+ w->owner=s;w->plan=p;w->sequence=seq;
  w->first=first;w->count=count;w->limit=count>=BS_OVERLAP?count-BS_OVERLAP:0;
+ w->scan_count=scan_count;
  if(!active){w->plan.chosen=p.nominal;w->stage=PUBLISH;}
  else {w->stage=CACHE;w->best=p.nominal-first;}
  return true;
@@ -72,9 +78,11 @@ static struct bs_frame mix(bs_read_fn read,void *ctx,uint32_t p,const uint16_t g
 }
 static void next_candidate(struct bs_work *w)
 {
- float score=w->energy>1?w->dot/sqrtf(w->energy):-1e30f;
+ float energy=w->energy[0]*w->balance[0]+w->energy[1]*w->balance[1];
+ float dot=w->dot[0]*w->balance[0]+w->dot[1]*w->balance[1];
+ float score=energy>1?dot/sqrtf(energy):-1e30f;
  if(score>w->highest){w->highest=score;w->best=w->offset;}
- w->index=0;w->dot=w->energy=0;
+ w->index=0;w->dot[0]=w->dot[1]=w->energy[0]=w->energy[1]=0;
  if(w->stage==COARSE) {
   w->offset+=8;
   if(w->offset>w->limit) {
@@ -83,6 +91,18 @@ static void next_candidate(struct bs_work *w)
    w->highest=-1e30f;w->stride=1;
   }
  } else if(++w->offset>w->refine_end){w->stage=TAIL;w->index=0;}
+}
+static void ordinary_search(struct bs_work *w,uint32_t chosen)
+{
+ w->index=0;w->stage=COARSE;
+ uint32_t natural=chosen+BS_HOP-w->first;
+ if(w->reference_energy<=1||
+    (w->reference_peak>65536.f&&w->reference_peak*8>w->reference_energy&&natural<=w->limit)) {
+  w->best=w->reference_energy<=1?w->plan.nominal-w->first:natural;
+  w->stage=TAIL;
+ } else if(w->plan.ratio==65536u&&chosen+BS_HOP==w->plan.nominal) {
+  w->best=w->plan.nominal-w->first;w->stage=TAIL;
+ }
 }
 uint32_t bs_service(struct bs_state *s,struct bs_work *w,bs_read_fn read,void *ctx,
                     const uint16_t gain[4],uint32_t oldest,uint32_t written,uint32_t budget)
@@ -98,42 +118,101 @@ uint32_t bs_service(struct bs_state *s,struct bs_work *w,bs_read_fn read,void *c
   if(w->stage==CACHE) {
    if(budget-used<8)break;
    if(!published(w->first+w->index,1,oldest,written)){w->owner=NULL;return used?used:1;}
-   w->cache[w->index]=mix(read,ctx,w->first+w->index,gain);used+=8;
-   if(++w->index==w->count){w->stage=REFERENCE;w->index=0;}
+   struct bs_frame x=mix(read,ctx,w->first+w->index,gain);
+   w->cache[w->index]=x;used+=8;
+   float energy=(float)x.l*x.l+(float)x.r*x.r;
+   w->scan_energy+=energy;if(energy>w->scan_peak)w->scan_peak=energy;
+   if(++w->index==w->count) {
+    if(w->scan_peak>1&&w->scan_energy>=w->scan_peak*256.f) {
+     /* Dense material keeps the ordinary cache/input requirement. */
+     w->scan_count=w->count;w->stage=REFERENCE;w->index=0;
+    } else w->stage=LOOKAHEAD;
+   }
+  } else if(w->stage==LOOKAHEAD) {
+   if(w->index==w->scan_count){w->stage=REFERENCE;w->index=0;continue;}
+   if(budget-used<8)break;
+   if(!published(w->first+w->index,1,oldest,written)) {
+    /* Optional onset lookahead must never prevent a ready ordinary grain
+     * when the producer's bounded refill has not published the far end. */
+    w->scan_count=w->index;w->stage=REFERENCE;w->index=0;continue;
+   }
+   struct bs_frame x=mix(read,ctx,w->first+w->index,gain);
+   float energy=(float)x.l*x.l+(float)x.r*x.r;
+   w->scan_energy+=energy;if(energy>w->scan_peak)w->scan_peak=energy;
+   ++w->index;used+=8;
   } else if(w->stage==REFERENCE) {
    if(budget-used<8)break;
    struct bs_frame x=mix(read,ctx,chosen+BS_HOP+w->index,gain);
    float weight=(float)(w->index*(BS_OVERLAP-w->index))*(1.f/(BS_OVERLAP*BS_OVERLAP));
    w->reference[w->index][0]=x.l*weight;w->reference[w->index][1]=x.r*weight;
+   w->reference_power[0]+=(float)x.l*x.l*weight;w->reference_power[1]+=(float)x.r*x.r*weight;
    float energy=(float)x.l*x.l+(float)x.r*x.r;
+   int16_t channel[2]={x.l,x.r};
+   for(unsigned c=0;c<2;c++)if(channel[c]) {
+    int8_t sign=channel[c]>0?1:-1;
+    if(w->sign[c]&&w->sign[c]!=sign&&w->crossings[c]<255)w->crossings[c]++;
+    w->sign[c]=sign;
+   }
    w->reference_energy+=energy;if(energy>w->reference_peak)w->reference_peak=energy;
    used+=8;
    if(++w->index==BS_OVERLAP) {
-    w->index=0;w->dot=w->energy=0;w->highest=-1e30f;w->offset=0;w->stride=4;w->stage=COARSE;
-    /* No phase information in silence: keep the nominal plan, rather than
-     * attracting an unrelated onset because it alone has nonzero energy.
-     * A sparse onset already in the old tail uses its natural continuation,
-     * when within the bounded seek region, avoiding a crossfade flam. */
-    uint32_t natural=chosen+BS_HOP-w->first;
-    if(w->reference_energy<=1||
-       (w->reference_peak>65536.f&&w->reference_peak*8>w->reference_energy&&natural<=w->limit)) {
-     w->best=w->reference_energy<=1?w->plan.nominal-w->first:natural;
-     w->stage=TAIL;
-    } else if(w->plan.ratio==65536u&&chosen+BS_HOP==w->plan.nominal) {
-     w->best=w->plan.nominal-w->first;w->stage=TAIL;
-    }
+    /* Balance phase matching across slow/fast channels. Without this, a
+     * fast waveform can dominate the shared grain choice and systematically
+     * detune the slower channel. One grain still serves every stem/channel. */
+    float maximum=fmaxf(w->reference_power[0],w->reference_power[1]);
+    for(unsigned c=0;c<2;c++)w->balance[c]=w->reference_power[c]>1?
+     maximum/(fmaxf(w->reference_power[c],maximum*.01f)*(1+w->crossings[c])):0;
+    w->index=0;w->dot[0]=w->dot[1]=w->energy[0]=w->energy[1]=0;w->highest=-1e30f;w->offset=0;w->stride=8;w->stage=COARSE;
+    /* An isolated onset needs its nominal time mapping, not correlation to
+     * another copy of itself. Look through the entire next grain so its
+     * late onsets cannot escape the overlap-sized correlation cache. */
+    if(w->scan_peak>65536.f&&w->scan_energy<w->scan_peak*256.f)w->stage=TRANSIENT;
+    else ordinary_search(w,chosen);
+   }
+  } else if(w->stage==TRANSIENT) {
+   uint32_t cost=w->index<w->count?2u:8u;if(budget-used<cost)break;
+   if(w->index>=w->count&&!published(w->first+w->index,1,oldest,written)) {
+    w->owner=NULL;return used?used:1;
+   }
+   struct bs_frame x=w->index<w->count?w->cache[w->index]:mix(read,ctx,w->first+w->index,gain);
+   float energy=(float)x.l*x.l+(float)x.r*x.r;
+   if(energy>w->scan_peak*.0001f)w->nonquiet_count++;
+   if(energy>w->scan_peak*.04f) {
+    if(!w->onset_count)w->onset=w->index;
+    w->onset_last=w->index;w->onset_count++;
+   }
+   used+=cost;
+   if(++w->index==w->scan_count) {
+    /* Preserve ordinary overlap on sustained/background material. Replacing
+     * an old tail is safe only around one short event surrounded by silence.
+     * Require observed quiet at both scan edges: a clipped longer event can
+     * otherwise appear short and cause an abrupt cut at the grain boundary. */
+    struct bs_frame first=w->cache[0];
+    float first_energy=(float)first.l*first.l+(float)first.r*first.r;
+    if(first_energy<=w->scan_peak*.0001f&&energy<=w->scan_peak*.0001f&&
+       w->onset_count&&w->onset_count<=256&&w->nonquiet_count<=w->onset_count+32&&
+       w->onset_last-w->onset+1<=w->onset_count+32) {
+     int64_t relative=(int32_t)(w->first+w->onset-w->plan.nominal);
+     int64_t best=(int64_t)w->onset-relative*65536/w->plan.ratio;
+     if(best<0)best=0;
+     if(best>w->limit)best=w->limit;
+     w->best=(uint32_t)best;w->transient=true;w->index=0;w->stage=TAIL;
+    } else ordinary_search(w,chosen);
    }
   } else if(w->stage==COARSE||w->stage==REFINE) {
    if(budget-used<2)break;
    struct bs_frame x=w->cache[w->offset+w->index];float l=x.l,r=x.r;
-   w->dot+=l*w->reference[w->index][0]+r*w->reference[w->index][1];
-   w->energy+=l*l+r*r;used+=2;w->index+=w->stride;
+   w->dot[0]+=l*w->reference[w->index][0];w->dot[1]+=r*w->reference[w->index][1];
+   /* Match the reference window in the candidate norm as well as dot. */
+   float weight=(float)(w->index*(BS_OVERLAP-w->index))*(1.f/(BS_OVERLAP*BS_OVERLAP));
+   w->energy[0]+=l*l*weight;w->energy[1]+=r*r*weight;used+=2;w->index+=w->stride;
    if(w->index>=BS_OVERLAP)next_candidate(w);
   } else if(w->stage==TAIL) {
    if(budget-used<8)break;
    /* Current overlap ended before begin(). It cannot read this bank again
     * until the ready descriptor is published after the entire copy. */
-   for(unsigned k=0;k<4;k++)s->tail[k][w->index]=read(ctx,k,chosen+BS_HOP+w->index);
+   uint32_t tail=w->transient?w->first+w->best:chosen+BS_HOP;
+   for(unsigned k=0;k<4;k++)s->tail[k][w->index]=read(ctx,k,tail+w->index);
    used+=8;if(++w->index==BS_OVERLAP){w->plan.chosen=w->first+w->best;w->stage=PUBLISH;}
   } else {
    uint32_t n=w->plan.fraction+BS_HOP*w->plan.ratio;

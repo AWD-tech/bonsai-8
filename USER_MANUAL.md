@@ -62,6 +62,8 @@ New or changed songs default to unknown BPM and both playlists. Recheck labels a
 
 ### Teach the beat, then sync
 
+Version 0.4.7 is prepared for device testing with fixes for reproduced bass, stereo and isolated-attack artifacts. Its controls match 0.4.6. Host checks pass; physical listening and load checks remain pending. See the repository's [0.4.7 report](docs/sync-validation-047.md) and [device checklist](docs/DEVICE_CHECKLIST_047.md).
+
 The 0.4.6 candidate uses beats you tap; it does not detect BPM automatically or match musical keys. All four stems on each deck share its tempo and timeline.
 
 1. Play the song on A. Hold **FUNCTION** and tap **Track 1** on at least four steady quarter-note beats. The first tap sets the beat anchor; further taps establish the source BPM. Release the controls.

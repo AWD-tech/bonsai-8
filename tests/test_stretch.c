@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #include "bonsai_stretch.h"
+#include "dual_engine.h"
 #include <assert.h>
 #include <limits.h>
 #include <stdio.h>
@@ -80,11 +81,202 @@ static void missing_and_wrap(void)
  atomic_store(&state.cursor,BS_OVERLAP);prepare(64);
  assert(state.pending.nominal==oldest+(uint32_t)(((uint64_t)BS_HOP*50001)>>16));
 }
+static void poison_work(unsigned byte)
+{
+ assert(!work.owner);
+ memset(&work,byte,sizeof(work));work.owner=NULL;
+}
+static void unchanged_bytes(const void *memory,size_t count,unsigned byte)
+{
+ const unsigned char *p=memory;
+ for(size_t i=0;i<count;i++)assert(p[i]==byte);
+}
+static void test_begin_does_not_clear_sample_scratch(void)
+{
+ memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=100000;
+ bs_init(&state,0,true);assert(bs_request(&state,49152));poison_work(0xff);
+ /* The first plan needs no sample cache. A one-unit call must publish it
+  * without writing either duration-independent, but large, scratch array. */
+ assert(bs_service(&state,&work,source,NULL,gains,oldest,written,1)==1);
+ assert(atomic_load(&state.ready));
+ unchanged_bytes(work.cache,sizeof(work.cache),0xff);
+ unchanged_bytes(work.reference,sizeof(work.reference),0xff);
+ assert(bs_activate(&state,NULL,NULL));atomic_store(&state.cursor,BS_OVERLAP);
+ poison_work(0xa5);reads=0;
+ /* A budget smaller than one four-stem copy admits the plan but cannot
+  * perform sample work. This distinguishes scalar reset from hidden bulk IO. */
+ assert(!bs_service(&state,&work,source,NULL,gains,oldest,written,1));
+ assert(work.owner==&state&&!atomic_load(&state.ready)&&!reads);
+ unchanged_bytes(work.cache,sizeof(work.cache),0xa5);
+ unchanged_bytes(work.reference,sizeof(work.reference),0xa5);
+ prepare(8);assert(atomic_load(&state.ready));
+}
+
+#define SNAPSHOT_HOPS 8u
+struct planning_snapshot {
+ uint32_t chosen,nominal,fraction,ratio,next_nominal,next_fraction,generation;
+ bool tail;
+ uint64_t samples;
+};
+static uint64_t hash_sample(uint64_t hash,int16_t sample)
+{ return (hash^(uint16_t)sample)*1099511628211ULL; }
+static void snapshot_plan(struct planning_snapshot *out,uint32_t budget,
+                          uint32_t rate,unsigned poison)
+{
+ memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=1000000;
+ bs_init(&state,0,true);assert(bs_request(&state,rate));poison_work(poison);prepare(budget);
+ assert(bs_activate(&state,NULL,NULL));
+ for(unsigned hop=0;hop<SNAPSHOT_HOPS;hop++) {
+  uint64_t hash=1469598103934665603ULL;
+  for(unsigned i=0;i<BS_HOP;i++) {
+   assert(bs_buffered(&state,oldest,written));
+   for(unsigned stem=0;stem<4;stem++)for(unsigned which=0;which<2;which++) {
+    struct bs_frame sample=bs_sample(&state,stem,which,source,NULL);
+    hash=hash_sample(hash_sample(hash,sample.l),sample.r);
+   }
+   bs_advance(&state);
+   if(i==BS_OVERLAP) {poison_work(poison);prepare(budget);}
+  }
+  struct bs_plan p=state.pending;
+  out[hop]=(struct planning_snapshot){p.chosen,p.nominal,p.fraction,p.ratio,
+   p.next_nominal,p.next_fraction,p.generation,p.tail,hash};
+  assert(bs_activate(&state,NULL,NULL));
+ }
+}
+static void test_poisoned_scratch_and_budget_partition_invariance(void)
+{
+ const uint32_t rates[]={32768,49152,50001,63570,65536,81920};
+ const uint32_t budgets[]={8,9,31,64,127,1024};
+ const unsigned poisons[]={0xff,0xa5};
+ struct planning_snapshot expected[SNAPSHOT_HOPS],actual[SNAPSHOT_HOPS];
+ for(unsigned r=0;r<sizeof(rates)/sizeof(rates[0]);r++) {
+  snapshot_plan(expected,65536,rates[r],0);
+  for(unsigned b=0;b<sizeof(budgets)/sizeof(budgets[0]);b++)
+   for(unsigned p=0;p<sizeof(poisons)/sizeof(poisons[0]);p++) {
+    snapshot_plan(actual,budgets[b],rates[r],poisons[p]);
+    for(unsigned hop=0;hop<SNAPSHOT_HOPS;hop++) {
+     const struct planning_snapshot *a=&actual[hop],*e=&expected[hop];
+     assert(a->chosen==e->chosen&&a->nominal==e->nominal&&a->fraction==e->fraction);
+     assert(a->ratio==e->ratio&&a->next_nominal==e->next_nominal&&a->next_fraction==e->next_fraction);
+     assert(a->generation==e->generation&&a->tail==e->tail&&a->samples==e->samples);
+    }
+   }
+ }
+}
+static void test_slow_extreme_grain_fits_p16m_refill_boundary(void)
+{
+ /* The adapter waits for eight P16M sectors of room before refilling.
+  * At 0.5x and the maximum positive chosen offset, the previous grain's
+  * tail has the furthest required endpoint relative to retained history. */
+ const uint32_t origins[]={10000u,UINT32_MAX-1000u};
+ const uint32_t buffered=DD_RING-8u*248u;
+ for(unsigned n=0;n<sizeof(origins)/sizeof(origins[0]);n++) {
+  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));
+  uint32_t nominal=origins[n],chosen=nominal+BS_SEARCH;
+  bs_init(&state,nominal-2000u,true);assert(bs_request(&state,32768));
+  atomic_store(&state.active,true);atomic_store(&state.chosen,chosen);
+  atomic_store(&state.nominal,nominal);atomic_store(&state.next_nominal,nominal+BS_HOP/2);
+  atomic_store(&state.cursor,BS_OVERLAP);oldest=bs_retain(&state);
+  assert(oldest==nominal+BS_HOP/2-BS_SEARCH);
+  uint32_t required=chosen+BS_SEQUENCE-oldest;
+  assert(required<=buffered&&"Search window exceeds the P16M refill safety margin");
+  written=oldest+required-1;reads=0;
+  assert(!bs_service(&state,&work,source,NULL,gains,oldest,written,1024));
+  assert(!work.owner&&!reads);
+  /* Once the whole boundary is present, all planning and tail copies must
+   * finish without another refill, including modulo-2^32 source indices. */
+  written=oldest+buffered;prepare(1024);assert(atomic_load(&state.ready));
+  atomic_store(&state.cursor,BS_HOP);assert(bs_activate(&state,NULL,NULL));
+ }
+}
+static void test_fast_extreme_grain_falls_back_without_full_lookahead(void)
+{
+ /* At 1.25x the old tail can retain an extra 192 frames beyond the P16M
+  * refill floor. A full transient scan cannot be mandatory: the renderer
+  * waits at the final interpolation sample for this plan to publish. */
+ const uint32_t origins[]={10000u,UINT32_MAX-1000u};
+ const uint32_t buffered=DD_RING-8u*248u;
+ const uint16_t silent_gains[4]={0,0,0,0};
+ for(unsigned n=0;n<sizeof(origins)/sizeof(origins[0]);n++)for(unsigned silent=0;silent<2;silent++) {
+  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));
+  uint32_t nominal=origins[n],chosen=nominal-BS_SEARCH;
+  uint32_t next=nominal+BS_HOP*5u/4u;
+  bs_init(&state,nominal-2000u,true);assert(bs_request(&state,81920));
+  atomic_store(&state.active,true);atomic_store(&state.chosen,chosen);
+  atomic_store(&state.nominal,nominal);atomic_store(&state.next_nominal,next);
+  atomic_store(&state.cursor,BS_HOP-1u);oldest=bs_retain(&state);
+  assert(oldest==chosen+BS_HOP-1u);written=oldest+buffered;
+  assert(next+BS_SEARCH+BS_OVERLAP-oldest<=buffered);
+  assert(next+BS_HOP+BS_OVERLAP-oldest>buffered);
+  assert(!bs_buffered(&state,oldest,written));
+  unsigned turns=0;
+  while(!atomic_load(&state.ready)) {
+   uint32_t used=bs_service(&state,&work,source,NULL,silent?silent_gains:gains,
+                            oldest,written,1024);
+   assert(used&&used<=1024);assert(++turns<100000);
+  }
+  if(silent) {
+   /* Sparse input enters optional lookahead and must stop at publication. */
+   assert(work.scan_count==written-work.first);assert(!work.transient);
+  }
+  assert(bs_buffered(&state,oldest,written));
+  for(unsigned stem=0;stem<4;stem++)for(unsigned which=0;which<2;which++)
+   (void)bs_sample(&state,stem,which,source,NULL);
+  bs_advance(&state);assert(bs_activate(&state,NULL,NULL));
+ }
+}
+static uint32_t event_origin;
+static int32_t event_first,event_end;
+static struct bs_frame boundary_event(void *context,unsigned stem,uint32_t p)
+{
+ (void)source(context,stem,p); /* Keep the publication/bounds oracle. */
+ int32_t relative=(int32_t)(p-event_origin);
+ int16_t sample=relative>=event_first&&relative<event_end?10000:0;
+ return (struct bs_frame){sample,sample};
+}
+static void test_transient_requires_observed_quiet_boundaries(void)
+{
+ const uint32_t origins[]={10000u,UINT32_MAX-1000u};
+ for(unsigned n=0;n<sizeof(origins)/sizeof(origins[0]);n++)for(unsigned scenario=0;scenario<4;scenario++) {
+  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));
+  uint32_t nominal=origins[n],chosen=nominal-BS_SEARCH,next=nominal+BS_HOP*5u/4u;
+  event_origin=next-BS_SEARCH;
+  bs_init(&state,nominal-2000u,true);assert(bs_request(&state,81920));
+  atomic_store(&state.active,true);atomic_store(&state.chosen,chosen);
+  atomic_store(&state.nominal,nominal);atomic_store(&state.next_nominal,next);
+  atomic_store(&state.cursor,BS_HOP-1u);oldest=bs_retain(&state);
+  written=oldest+DD_RING-8u*248u;
+  int32_t available=(int32_t)(written-event_origin);
+  /* Clipped starts/ends look like short isolated events inside the scan.
+   * Complete pulses with just one quiet boundary sample remain eligible. */
+  event_first=scenario==0?-300:scenario==1?available-100:scenario==2?1:available-49;
+  event_end=scenario==0?100:scenario==1?available+300:scenario==2?49:available-1;
+  unsigned turns=0;
+  while(!atomic_load(&state.ready)) {
+   uint32_t used=bs_service(&state,&work,boundary_event,NULL,gains,oldest,written,1024);
+   assert(used&&used<=1024);assert(++turns<100000);
+  }
+  assert(work.transient==(scenario>=2));
+  assert(bs_buffered(&state,oldest,written));
+  if(!scenario) {
+   /* Replacing this old tail with a future silent tail would cut a 10000
+    * sample straight to zero at the interpolation/grain boundary. */
+   struct bs_frame last=bs_sample(&state,0,0,boundary_event,NULL);
+   struct bs_frame next_sample=bs_sample(&state,0,1,boundary_event,NULL);
+   assert(last.l==10000&&next_sample.l==10000);
+  }
+ }
+}
 int main(void)
 {
  const uint32_t rates[]={32768,49152,65536,73728,81920,50001};
  for(unsigned r=0;r<6;r++)run(rates[r]);
  reset_and_coalesce();
  missing_and_wrap();
- printf("PASS budgeted stretch: raw per-stem convex oracle, exact1x, stereo, clocks, wrap, bounds, coalescing, reset generation; state=%zu/work=%zu/two=%zu\n",sizeof(state),sizeof(work),sizeof(state)*2+sizeof(work));
+ test_begin_does_not_clear_sample_scratch();
+ test_poisoned_scratch_and_budget_partition_invariance();
+ test_slow_extreme_grain_fits_p16m_refill_boundary();
+ test_fast_extreme_grain_falls_back_without_full_lookahead();
+ test_transient_requires_observed_quiet_boundaries();
+ printf("PASS budgeted stretch: raw per-stem convex oracle, exact1x, stereo, clocks, wrap, bounds, coalescing, reset generation, poisoned scratch and budget partition invariance; state=%zu/work=%zu/two=%zu\n",sizeof(state),sizeof(work),sizeof(state)*2+sizeof(work));
 }

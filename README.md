@@ -8,7 +8,7 @@ Development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). Companio
 
 ## Release status
 
-**Unattended validation found live-sync audio failures.** Recording/export and native browser audio passed synthetic host checks, but deep-bass pitch drift and repeated beat transients block a fully verified release. No device was connected for these new checks. See the [results and reproducible tests](docs/UNATTENDED_VALIDATION_046.md).
+**Bonsai 8 0.4.7 is prepared for device testing.** It fixes the reproduced bass-pitch drift, stereo imbalance and repeated isolated attacks found in 0.4.6. The expanded host audio screens and ten-minute simulated eight-stem test pass. It has not been flashed or physically tested. Read the [measurements and build details](docs/sync-validation-047.md) and [device checklist](docs/DEVICE_CHECKLIST_047.md). Physical listening, USB/mirroring load and recording remain release gates.
 
 **Bonsai 8 0.4.6 is installed and available as a test candidate from the [website installer](https://sp-1.xyz/).** It adds separate saved A/B playlists, ordered by source BPM, for physical FUNCTION + rocker browsing. Configure membership and BPM under **On your player → Deck playlists · BPM order**. Loading a song cues only the selected deck; the other continues. Tap PLAY to start the new song. See [playlist details](docs/PLAYLISTS.md).
 
@@ -28,7 +28,7 @@ Based on [chattock/sp1-tape-looper](https://github.com/chattock/sp1-tape-looper)
 
 ## Controls — 0.4.6 candidate
 
-The table describes the installed effect-free 0.4.6 candidate. Version 0.4.4 had a high-pass filter; earlier 0.4.0–0.4.3 builds also included Echo and Reverb.
+The table describes the installed effect-free 0.4.6 candidate; 0.4.7 keeps these controls unchanged. Version 0.4.4 had a high-pass filter; earlier 0.4.0–0.4.3 builds also included Echo and Reverb.
 
 | Control | Action |
 | --- | --- |
