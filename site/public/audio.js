@@ -93,10 +93,12 @@ export class AudioEngine {
     }
     await this.ctx.resume();
   }
-  async decode(file) {
-    this.ensureCapacity([], Number(file.size) || 0);
+  async decode(file, { retainedBuffers = [] } = {}) {
+    // A manual four-stem import is not installed on a deck until every file
+    // succeeds. Count those pending buffers too, before another file is read.
+    this.ensureCapacity(retainedBuffers, Number(file.size) || 0);
     await this.init(); const buffer = await this.ctx.decodeAudioData(await file.arrayBuffer());
-    this.ensureCapacity([buffer]); return buffer;
+    this.ensureCapacity([...retainedBuffers, buffer]); return buffer;
   }
   async load(buffers) { return this.loadDeck(this.selected, buffers); }
   async loadDeck(index, buffers, media, { isCurrent = () => true } = {}) {

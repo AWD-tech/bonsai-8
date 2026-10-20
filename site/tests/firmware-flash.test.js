@@ -17,3 +17,73 @@ test('disconnect during audio-independent application chunks prevents finalizati
 test('incomplete second finalization cannot start the application',async()=>{let finals=0;const u=updater({write(r,c){if(r.command===0x48&&++finals===2){c.enqueue(packet(0x49,r.seq,[0]));return true;}}});await withSerial(async()=>u.port,async()=>{await assert.rejects(new FirmwareFlasher().flash(await release(10)),/finalization/);assert.equal(finals,2);assert.ok(!u.requests.some(r=>r.command===0x50));assert.equal(u.closed,1);});});
 test('a failed attempt releases its port and can retry a fresh updater session',async()=>{const bad=updater({write(r,c){c.close();return true;}}),good=updater({write(r,c){if(r.command===0x50){c.close();return true;}}});let attempts=0;await withSerial(async()=>attempts++?good.port:bad.port,async()=>{const flasher=new FirmwareFlasher(),r=await release(10);await assert.rejects(flasher.flash(r),/disconnected/);const result=await flasher.flash(r);assert.equal(result.version,'0.4.0');assert.equal(bad.closed,1);assert.equal(good.closed,1);assert.ok(good.requests.every(r=>[0x52,0x46,0x45,0x48,0x50].includes(r.command)),'no library format, initialization or storage writes');});});
 test('missing updater response clears pending command and marks failure',async()=>{const flasher=new FirmwareFlasher();flasher.active=true;flasher.writer={write:async()=>{}};await assert.rejects(flasher.command(0x52,undefined,0x53,1),/stopped responding/);assert.equal(flasher.pending,null);assert.ok(flasher.readError);});
+
+test('start keeps the port open until a queued reset disconnects, preserving application-only writes',async()=>{
+ let resetTimer,resetApplied=false,cancelledReset=false;
+ const u=updater({write(r,c){if(r.command===0x50){resetTimer=setTimeout(()=>{resetApplied=true;c.close();},30);return true;}}});
+ const close=u.port.close;
+ u.port.close=async()=>{if(!resetApplied){cancelledReset=true;clearTimeout(resetTimer);}await close();};
+ await withSerial(async()=>u.port,async()=>{
+  const flasher=new FirmwareFlasher(),result=await flasher.flash(await release(10));
+  assert.equal(result.version,'0.4.0');
+  assert.equal(resetApplied,true,'closing immediately would discard the queued application start');
+  assert.equal(cancelledReset,false);
+  assert.equal(flasher.pending,null);
+  assert.equal(flasher.readError,null);
+  assert.equal(u.closed,1);
+  assert.equal(u.port.readable.locked,false);
+  assert.equal(u.port.writable.locked,false);
+  assert.ok(u.requests.every(r=>[0x52,0x46,0x45,0x48,0x50].includes(r.command)),'no song-storage command is sent');
+ });
+});
+
+async function startSession(write,action){
+ const u=updater({write}),flasher=new FirmwareFlasher();
+ flasher.active=true;flasher.reader=u.port.readable.getReader();flasher.writer=u.port.writable.getWriter();
+ flasher.readTask=flasher.read();
+ try{await action(flasher,u);}finally{
+  flasher.active=false;try{await flasher.reader.cancel();}catch{}await flasher.readTask;
+  flasher.reader.releaseLock();flasher.writer.releaseLock();await u.port.close();
+ }
+}
+
+test('start accepts a matching-sequence reply without assuming command 0x51',async()=>{
+ await startSession((r,c)=>{c.enqueue(packet(0x50,r.seq));return true;},async(flasher,u)=>{
+  await flasher.startApplication(100);
+  assert.equal(flasher.pending,null);assert.equal(flasher.readError,null);
+  assert.deepEqual(u.requests.map(r=>r.command),[0x50]);
+ });
+});
+
+test('stale start replies cannot finish the wait; no reply has a bounded successful timeout',async()=>{
+ for(const wrongSequence of [false,true])await startSession((r,c)=>{if(wrongSequence)c.enqueue(packet(0x51,(r.seq+1)&255));return true;},async(flasher)=>{
+  let settled=false;const waiting=flasher.startApplication(30).then(()=>{settled=true;});
+  await new Promise(resolve=>setTimeout(resolve,5));
+  assert.equal(settled,false,'a stale or absent reply must not close the port immediately');
+  assert.ok(flasher.pending);
+  await waiting;
+  assert.equal(settled,true);assert.equal(flasher.pending,null);assert.equal(flasher.readError,null);
+ });
+});
+
+test('start allows a reset disconnect but does not swallow read or write failures',async()=>{
+ await startSession((r,c)=>{c.error(new DOMException('Device removed','NetworkError'));return true;},async(flasher)=>{
+  await flasher.startApplication(100);assert.equal(flasher.readError,null);assert.equal(flasher.pending,null);
+ });
+ for(const failure of ['read','checksum','write'])await startSession((r,c)=>{
+  if(failure==='read'){c.error(new Error('invalid transport state'));return true;}
+  if(failure==='checksum'){const damaged=packet(0x50,r.seq);damaged[1]^=1;c.enqueue(damaged);return true;}
+  throw new Error('start write failed');
+ },async(flasher)=>{
+  await assert.rejects(flasher.startApplication(100),/invalid transport state|checksum|start write failed/);
+  assert.equal(flasher.pending,null);assert.ok(flasher.readError);
+ });
+});
+
+test('a recorded reader error before start prevents the start write',async()=>{
+ await startSession(()=>true,async(flasher,u)=>{
+  flasher.fail(new Error('earlier read failed'));
+  await assert.rejects(flasher.startApplication(100),/earlier read failed/);
+  assert.equal(u.requests.length,0);assert.equal(flasher.pending,null);
+ });
+});

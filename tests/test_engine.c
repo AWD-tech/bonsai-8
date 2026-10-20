@@ -4,6 +4,29 @@
 #include <string.h>
 #include <limits.h>
 #include <stdlib.h>
+#ifdef DD_RETAIN_COST_TEST
+/* Compile dual_engine.c alone with -Dbs_retain=test_counted_bs_retain to
+ * count production calls without changing the independently linked oracle. */
+static unsigned retain_calls;
+uint32_t test_counted_bs_retain(const struct bs_state *s)
+{ ++retain_calls;return bs_retain(s); }
+#endif
+#if defined(DD_BLOCKED_COST_TEST)||defined(DD_STRETCH_SPAN_COST_TEST)
+/* Likewise rename only production calls to expose repeated checks after a
+ * block-local failure. The sample oracle still uses the real functions. */
+static unsigned activate_calls,buffered_calls;
+bool test_counted_bs_activate(struct bs_state *s,uint32_t *n,uint32_t *f)
+{ ++activate_calls;return bs_activate(s,n,f); }
+bool test_counted_bs_buffered(struct bs_state *s,uint32_t oldest,uint32_t written)
+{ ++buffered_calls;return bs_buffered(s,oldest,written); }
+#endif
+#ifdef DD_STRETCH_SPAN_COST_TEST
+static unsigned samples_calls,advance_calls;
+const struct bs_frame (*test_counted_bs_samples(struct bs_state *s,bs_read_fn read,void *ctx))[2]
+{ ++samples_calls;return bs_samples(s,read,ctx); }
+void test_counted_bs_advance(struct bs_state *s)
+{ ++advance_calls;bs_advance(s); }
+#endif
 static struct dd_engine engine;
 static struct dd_frame frames[DD_RING];
 static int16_t out[(DD_RING+1)*2];
@@ -153,13 +176,31 @@ static int16_t reference_clamp(int32_t n,uint32_t *clips)
 }
 static int32_t reference_interpolate(int16_t a,int16_t b,uint32_t fraction)
 { return a+(int64_t)((int32_t)b-a)*fraction/65536; }
+/* Independent sample oracle: no cached pair, no narrowed arithmetic. */
+static struct dd_frame reference_stretch_sample(const struct dd_deck *d,unsigned stem,uint32_t i)
+{
+ const struct bs_state *s=&d->stretch;
+ if(i==BS_HOP)return (struct dd_frame){s->tail[stem][0].l,s->tail[stem][0].r};
+ uint32_t position=atomic_load(&s->chosen)+i;
+ struct dd_frame x=d->voice[stem].ring[position&(DD_RING-1)];
+ if(s->active_tail&&i<BS_OVERLAP) {
+  struct bs_frame old=s->tail[stem][i];
+  x.l=((int64_t)old.l*(BS_OVERLAP-i)+(int64_t)x.l*i)/BS_OVERLAP;
+  x.r=((int64_t)old.r*(BS_OVERLAP-i)+(int64_t)x.r*i)/BS_OVERLAP;
+ }
+ return x;
+}
 static void reference_render(struct dd_engine *e,int16_t *out,uint32_t count)
 {
- uint32_t pos[2],available[2],step[2]; bool play[2],any[2]={false,false};
+ uint32_t pos[2],before[2],available[2],step[2],clock[2],written[2];
+ bool play[2],any[2]={false,false},stretch[2];
  uint16_t gain[2][4]; uint32_t master=reference_bound(atomic_load(&e->master),0,256);
  for(unsigned k=0;k<2;k++) {
   struct dd_deck *d=&e->deck[k];
-  pos[k]=atomic_load_explicit(&d->read,memory_order_relaxed); available[k]=DD_RING;
+  pos[k]=atomic_load_explicit(&d->read,memory_order_relaxed);before[k]=pos[k];available[k]=DD_RING;
+  clock[k]=atomic_load(&d->source_clock);
+  stretch[k]=atomic_load(&d->stretch.enabled)&&
+   (atomic_load(&d->stretch.active)||atomic_load(&d->stretch.ready)||atomic_load(&d->stretch.requested)!=65536u);
   step[k]=reference_bound(atomic_load(&d->speed),32768,81920)/2;
   play[k]=atomic_load(&d->playing)!=0; uint32_t mute=atomic_load(&d->mute_mask);
   for(unsigned s=0;s<4;s++) {
@@ -171,14 +212,31 @@ static void reference_render(struct dd_engine *e,int16_t *out,uint32_t count)
    if(n>DD_RING) n=0;
    if(n<available[k]) available[k]=n;
   }
+  written[k]=pos[k]+available[k];
  }
  for(uint32_t f=0;f<count;f++) {
   int32_t ml=0,mr=0;
   for(unsigned k=0;k<2;k++) {
    struct dd_deck *d=&e->deck[k];
-   bool buffered=available[k]>=(d->starved?512u:2u);
+   bool buffered;
+   if(stretch[k]) {
+    uint32_t nominal=clock[k],fraction=d->source_fraction/2;
+    bool boundary=atomic_load(&d->stretch.cursor)==BS_HOP;
+    bool ready=play[k]&&any[k]&&bs_activate(&d->stretch,&nominal,&fraction);
+    if(ready&&boundary) {
+     clock[k]=nominal;d->source_fraction=fraction*2;
+     if(!d->stretch.active_tail)d->fraction=0;
+    }
+    buffered=ready&&bs_buffered(&d->stretch,pos[k],written[k]);
+   } else buffered=available[k]>=(d->starved?512u:2u);
    if(play[k]&&any[k]&&!buffered) {
-    if(!d->starved) {++d->underruns;d->starved=true;}
+    if(!d->starved) {
+     ++d->underruns;d->starved=true;
+     if(stretch[k]&&atomic_load(&d->stretch.cursor)>=BS_HOP-1u&&
+        (!atomic_load(&d->stretch.ready)||d->stretch.pending.generation!=atomic_load(&d->stretch.generation)))
+      ++d->plan_underruns;
+     else ++d->source_underruns;
+    }
    } else if(buffered) d->starved=false;
    bool running=play[k]&&any[k]&&buffered;
    if(running&&d->envelope<256) ++d->envelope;
@@ -194,22 +252,36 @@ static void reference_render(struct dd_engine *e,int16_t *out,uint32_t count)
      /* Keep filling/advancing every stem so it can rejoin in phase. A silent
       * voice needs no sample interpolation once its gain ramp reaches zero. */
      if(!v->current_gain) continue;
-     struct dd_frame a=v->ring[pos[k]&(DD_RING-1)],b=v->ring[(pos[k]+1)&(DD_RING-1)];
+     struct dd_frame a,b;
+     if(stretch[k]) {
+      uint32_t cursor=atomic_load(&d->stretch.cursor);
+      a=reference_stretch_sample(d,s,cursor);b=reference_stretch_sample(d,s,cursor+1);
+     } else {a=v->ring[pos[k]&(DD_RING-1)];b=v->ring[(pos[k]+1)&(DD_RING-1)];}
      int32_t l=reference_interpolate(a.l,b.l,d->fraction);
      int32_t r=reference_interpolate(a.r,b.r,d->fraction);
      dl+=l*v->current_gain; dr+=r*v->current_gain;
     }
     /* 12dB fixed headroom, then saturate the final two-deck bus. */
     dl/=1024; dr/=1024; d->last=(struct dd_wide_frame){dl,dr};
-    d->fraction+=step[k]; uint32_t advance=d->fraction>>16; d->fraction&=65535;
-    pos[k]+=advance; available[k]-=advance;
+    d->fraction+=stretch[k]?32768u:step[k];uint32_t advance=d->fraction>>16;d->fraction&=65535;
+    if(stretch[k]) {
+     if(advance)atomic_fetch_add(&d->stretch.cursor,1);
+     d->source_fraction+=bs_actual(&d->stretch);clock[k]+=d->source_fraction>>17;d->source_fraction&=131071;
+     uint32_t retain=bs_retain(&d->stretch);
+     if((int32_t)(retain-clock[k])>0)retain=clock[k];
+     if((int32_t)(retain-pos[k])>0)pos[k]=retain;
+    } else {pos[k]+=advance;available[k]-=advance;}
    }
    ml+=dl*d->envelope/256; mr+=dr*d->envelope/256;
   }
   out[2*f]=reference_clamp(ml*(int32_t)master/256,&e->clips);
   out[2*f+1]=reference_clamp(mr*(int32_t)master/256,&e->clips);
  }
- for(unsigned k=0;k<2;k++) atomic_store_explicit(&e->deck[k].read,pos[k],memory_order_release);
+ for(unsigned k=0;k<2;k++) {
+  struct dd_deck *d=&e->deck[k];
+  atomic_store(&d->source_clock,stretch[k]?clock[k]:atomic_load(&d->source_clock)+pos[k]-before[k]);
+  atomic_store_explicit(&d->read,pos[k],memory_order_release);
+ }
 }
 static struct dd_engine reference_engine;
 static int16_t reference_out[(DD_RING+1)*2];
@@ -262,6 +334,7 @@ static void test_render_differential(void)
     assert(atomic_load(&a->read)==atomic_load(&b->read));
     assert(atomic_load(&a->source_clock)==clocks[k]+atomic_load(&b->read)-reads[k]);
     assert(a->fraction==b->fraction&&a->underruns==b->underruns);
+  assert(a->plan_underruns==b->plan_underruns&&a->source_underruns==b->source_underruns);
     assert(a->starved==b->starved&&a->envelope==b->envelope);
     assert(a->last.l==b->last.l&&a->last.r==b->last.r);
     for(unsigned s=0;s<4;s++) assert(a->voice[s].current_gain==b->voice[s].current_gain);
@@ -276,6 +349,7 @@ static void compare_render_state(void)
   const struct dd_deck *a=&engine.deck[k],*b=&reference_engine.deck[k];
   assert(atomic_load(&a->read)==atomic_load(&b->read));
   assert(a->fraction==b->fraction&&a->underruns==b->underruns);
+  assert(a->plan_underruns==b->plan_underruns&&a->source_underruns==b->source_underruns);
   assert(a->starved==b->starved&&a->envelope==b->envelope);
   assert(a->last.l==b->last.l&&a->last.r==b->last.r);
   for(unsigned s=0;s<4;s++) assert(a->voice[s].current_gain==b->voice[s].current_gain);
@@ -405,11 +479,451 @@ static void test_stretch_finite_rings_and_coalescing(void)
  service_stretch();assert(engine.stretch_work.owner!=&a->stretch);
  assert(atomic_load(&b->stretch.ready));
 }
+static void test_stretch_shared_worker_deadline(void)
+{
+ /* A deterministic scheduling budget, not a host timing claim: each 2 ms
+  * audio tick gives both decks five 1024-unit planner slices. This is enough
+  * total work for both dense grains, but starting only after the 16 ms
+  * overlap misses the second deck's first 44 ms grain deadline. */
+ dd_init(&engine);atomic_store(&engine.master,128);
+ for(unsigned k=0;k<2;k++) {
+  struct dd_deck *d=&engine.deck[k];dd_reset_deck(d,15);dd_set_stretch(d,true);
+  atomic_store(&d->playing,1);assert(dd_set_tempo(d,66846));
+  for(unsigned s=0;s<4;s++)atomic_store(&d->voice[s].gain,256);
+ }
+ for(unsigned block=0;block<1000;block++) {
+  refill_stretch_rings();
+  for(unsigned slice=0;slice<5;slice++)assert(dd_stretch_service(&engine,1024)<=1024);
+  dd_render(&engine,out,96);
+  for(unsigned k=0;k<2;k++) {
+   assert(!engine.deck[k].source_underruns);
+   assert(!engine.deck[k].plan_underruns);
+  }
+ }
+}
+static void test_stretch_shared_worker_phase_and_pause(void)
+{
+ /* Deck starts need not share a grain boundary. Sweep every 2 ms offset
+  * within the 44 ms hop with exactly the same bounded storage opportunities. */
+ for(unsigned phase=0;phase<22;phase++) {
+  dd_init(&engine);atomic_store(&engine.master,128);
+  for(unsigned k=0;k<2;k++) {
+   struct dd_deck *d=&engine.deck[k];dd_reset_deck(d,15);dd_set_stretch(d,true);
+   assert(dd_set_tempo(d,66846));atomic_store(&d->playing,k==0);
+   for(unsigned s=0;s<4;s++)atomic_store(&d->voice[s].gain,256);
+  }
+  for(unsigned block=0;block<400;block++) {
+   if(block==phase)atomic_store(&engine.deck[1].playing,1);
+   refill_stretch_rings();
+   for(unsigned slice=0;slice<5;slice++)assert(dd_stretch_service(&engine,1024)<=1024);
+   dd_render(&engine,out,96);
+   assert(!engine.deck[0].underruns&&!engine.deck[1].underruns);
+  }
+ }
+ /* Pause the owner midway through its private search and old overlap.
+  * It must finish/park once, release scratch for the live deck, remain idle
+  * while paused, then resume without recopying the old audible tail early. */
+ for(unsigned paused=0;paused<2;paused++) {
+  dd_init(&engine);atomic_store(&engine.master,128);
+  for(unsigned k=0;k<2;k++) {
+   struct dd_deck *d=&engine.deck[k];dd_reset_deck(d,15);dd_set_stretch(d,true);
+   assert(dd_set_tempo(d,66846));atomic_store(&d->playing,1);
+   for(unsigned s=0;s<4;s++)atomic_store(&d->voice[s].gain,256);
+  }
+  refill_stretch_rings();assert(dd_stretch_service(&engine,1024)>0);dd_render(&engine,out,128);
+  struct bs_state *s=&engine.deck[paused].stretch;
+  unsigned attempts=0;
+  do {assert(dd_stretch_service(&engine,1024)>0);assert(++attempts<100);}
+  while(engine.stretch_work.owner!=s);
+  uint32_t cursor=atomic_load(&s->cursor);assert(cursor<BS_OVERLAP);
+  atomic_store(&engine.deck[paused].playing,0);
+  for(unsigned block=0;block<400;block++) {
+   if(block==200) {
+    assert(s->prepared&&!atomic_load(&s->ready)&&engine.stretch_work.owner!=s);
+    assert(atomic_load(&s->cursor)==cursor);
+    atomic_store(&engine.deck[paused].playing,1);
+   }
+   refill_stretch_rings();
+   for(unsigned slice=0;slice<5;slice++)assert(dd_stretch_service(&engine,1024)<=1024);
+   dd_render(&engine,out,96);
+   assert(!engine.deck[0].underruns&&!engine.deck[1].underruns);
+  }
+ }
+}
+static void compare_stretch_render_state(void)
+{
+ compare_render_state();
+ for(unsigned k=0;k<2;k++) {
+  const struct dd_deck *a=&engine.deck[k],*b=&reference_engine.deck[k];
+  assert(atomic_load(&a->source_clock)==atomic_load(&b->source_clock));
+  assert(a->source_fraction==b->source_fraction);
+  const struct bs_state *x=&a->stretch,*y=&b->stretch;
+  assert(atomic_load(&x->cursor)==atomic_load(&y->cursor));
+  assert(atomic_load(&x->sequence)==atomic_load(&y->sequence));
+  assert(atomic_load(&x->active)==atomic_load(&y->active));
+  assert(atomic_load(&x->ready)==atomic_load(&y->ready));
+  assert(atomic_load(&x->chosen)==atomic_load(&y->chosen));
+  assert(atomic_load(&x->nominal)==atomic_load(&y->nominal));
+  assert(atomic_load(&x->fraction)==atomic_load(&y->fraction));
+  assert(atomic_load(&x->actual)==atomic_load(&y->actual));
+  assert(atomic_load(&x->next_nominal)==atomic_load(&y->next_nominal));
+  assert(atomic_load(&x->next_fraction)==atomic_load(&y->next_fraction));
+  assert(x->active_tail==y->active_tail);
+ }
+}
+static void test_stretch_render_differential(void)
+{
+ const unsigned counts[]={1,2,31,127,255,256,257,511};
+ const uint32_t ratios[]={32768,66846,81920};
+ unsigned comparisons=0,starved=0,active=0;
+ for(unsigned mode=1;mode<=3;mode++)for(unsigned rate=0;rate<3;rate++) {
+  dd_init(&engine);atomic_store(&engine.master,128);
+  for(unsigned k=0;k<2;k++) {
+   struct dd_deck *d=&engine.deck[k];dd_reset_deck(d,15);dd_set_stretch(d,true);
+   uint32_t origin=rate==2?UINT32_MAX-3000u:0;
+   atomic_store(&d->read,origin);atomic_store(&d->source_clock,origin);
+   bs_init(&d->stretch,origin,true);atomic_store(&d->playing,1);
+   d->fraction=32768; /* First descriptor also tests entering from dry midpoint. */
+   if(mode&(1u<<k))assert(dd_set_tempo(d,ratios[(rate+k)%3]));
+   for(unsigned stem=0;stem<4;stem++) {
+    atomic_store(&d->voice[stem].gain,256);atomic_store(&d->voice[stem].written,origin);
+   }
+  }
+  for(unsigned block=0;block<600;block++) {
+   /* Actual bounded planner/rings, with controlled missing plans and source
+    * starvation. Pauses, gains and mute transitions exercise both ramp paths. */
+   unsigned phase=block%150;
+   if(phase<55||phase>=85)refill_stretch_rings();
+   if(phase<110||phase>=125)for(unsigned n=0;n<64;n++)if(!dd_stretch_service(&engine,1024))break;
+   if(phase==15)atomic_store(&engine.deck[block/150%2].playing,0);
+   if(phase==20)atomic_store(&engine.deck[block/150%2].playing,1);
+   if(phase==30)atomic_store(&engine.deck[0].voice[block/150%4].gain,0);
+   if(phase==35)atomic_store(&engine.deck[0].voice[block/150%4].gain,256);
+   if(phase==40)atomic_store(&engine.deck[1].mute_mask,5);
+   if(phase==45)atomic_store(&engine.deck[1].mute_mask,0);
+   if(phase==90)atomic_store(&engine.master,32);
+   if(phase==95)atomic_store(&engine.master,128);
+   unsigned count=counts[block%8];
+   memcpy(&reference_engine,&engine,sizeof(engine));
+   dd_render(&engine,out,count);reference_render(&reference_engine,reference_out,count);
+   assert(!memcmp(out,reference_out,count*2*sizeof(*out)));
+   compare_stretch_render_state();comparisons++;
+   for(unsigned k=0;k<2;k++) {
+    starved+=engine.deck[k].starved;active+=atomic_load(&engine.deck[k].stretch.active);
+   }
+  }
+ }
+ assert(starved&&active);
+ printf("PASS stretch renderer: %u exact PCM/state comparisons, independent dry decks, native midpoint/overlap/grain boundaries, ramps, pauses, starvation and uint32 wrap\n",comparisons);
+}
+static void test_stretch_retention_block_boundary(void)
+{
+ /* Adversarial legal descriptors: the old chosen position can be +600 and
+  * the new one -600 around their nominal clocks. At 0.5x this moves the
+  * waveform backwards, while the retained-ring and audible clocks must not.
+  * Keep the sample-at-a-time oracle above unchanged. */
+ const uint32_t ratios[]={32768,66846,81920},origins[]={4000u,UINT32_MAX-1000u};
+ const uint32_t cursors[]={BS_OVERLAP,BS_OVERLAP+1,BS_HOP-2,BS_HOP-1,BS_HOP};
+ const unsigned counts[]={0,1,2,255,256,257,1536,4097};
+ unsigned comparisons=0;
+ for(unsigned rate=0;rate<3;rate++)for(unsigned origin=0;origin<2;origin++)
+ for(unsigned old_side=0;old_side<2;old_side++)for(unsigned new_side=0;new_side<2;new_side++)
+ for(unsigned cursor=0;cursor<5;cursor++)for(unsigned mode=0;mode<5;mode++)
+ for(unsigned block=0;block<8;block++) {
+  dd_init(&engine);atomic_store(&engine.master,128);
+  for(unsigned k=0;k<2;k++) {
+   struct dd_deck *d=&engine.deck[k];dd_reset_deck(d,15);
+   struct bs_state *s=&d->stretch;uint32_t nominal=origins[origin],ratio=ratios[(rate+k)%3];
+   bs_init(s,nominal-3000u,true);assert(bs_request(s,ratio));
+   uint32_t chosen=nominal+(old_side?BS_SEARCH:0u-BS_SEARCH),i=cursors[cursor];
+   uint32_t next_phase=BS_HOP*ratio,next=nominal+(next_phase>>16);
+   atomic_store(&s->active,true);atomic_store(&s->actual,ratio);atomic_store(&s->sequence,2);
+   atomic_store(&s->nominal,nominal);atomic_store(&s->chosen,chosen);atomic_store(&s->cursor,i);
+   atomic_store(&s->next_nominal,next);atomic_store(&s->next_fraction,next_phase&65535);
+   s->active_tail=true;
+   uint32_t next_ratio=ratios[(rate+k+1)%3],after=(next_phase&65535)+BS_HOP*next_ratio;
+   s->pending=(struct bs_plan){.chosen=next+(new_side?BS_SEARCH:0u-BS_SEARCH),
+    .nominal=next,.fraction=next_phase&65535,.ratio=next_ratio,
+    .next_nominal=next+(after>>16),.next_fraction=after&65535,
+    .generation=atomic_load(&s->generation),.tail=true};
+   atomic_store(&s->ready,!(mode==3&&k==0));
+   d->fraction=i==BS_HOP?0:(block&1?32768:0);
+   uint32_t phase=(i*2+(d->fraction!=0))*ratio;
+   uint32_t clock=nominal+(phase>>17);d->source_fraction=phase&131071;
+   atomic_store(&d->source_clock,clock);
+   uint32_t retained=bs_retain(s);if((int32_t)(retained-clock)>0)retained=clock;
+   atomic_store(&d->read,retained);atomic_store(&d->playing,!(mode==1&&k==0));
+   atomic_store(&d->mute_mask,mode==4&&k==0?15:0);
+   d->envelope=256;d->last=(struct dd_wide_frame){1234,-4321};
+   for(unsigned stem=0;stem<4;stem++) {
+    atomic_store(&d->voice[stem].gain,256);d->voice[stem].current_gain=256;
+    atomic_store(&d->voice[stem].written,retained+(mode==2&&k==0?0:DD_RING));
+    for(unsigned n=0;n<DD_RING;n++)d->voice[stem].ring[n]=(struct dd_frame){
+     (int16_t)((n*137+stem*719+k*31)%60001-30000),
+     (int16_t)((n*83+stem*409+k*19)%60001-30000)};
+    for(unsigned n=0;n<BS_OVERLAP;n++)s->tail[stem][n]=(struct bs_frame){
+     (int16_t)(n*59+stem*211-15000),(int16_t)(n*41+stem*13-12000)};
+   }
+  }
+  memcpy(&reference_engine,&engine,sizeof(engine));
+#ifdef DD_RETAIN_COST_TEST
+  retain_calls=0;
+#endif
+  unsigned count=counts[block];dd_render(&engine,out,count);
+#ifdef DD_RETAIN_COST_TEST
+  if(retain_calls>2)fprintf(stderr,"retention calls for %u output frames: %u (maximum 2)\n",count,retain_calls);
+  assert(retain_calls<=2);
+  if(!count)assert(!retain_calls);
+#endif
+  reference_render(&reference_engine,reference_out,count);
+  assert(!memcmp(out,reference_out,count*2*sizeof(*out)));compare_stretch_render_state();
+  comparisons++;
+ }
+ printf("PASS block retention: %u exact old-oracle PCM/state checks, extreme chosen offsets, tempo changes, partial frames, pause, starvation, mute and wrap\n",comparisons);
+}
+static void test_stretch_blocked_callback(void)
+{
+ for(unsigned mode=0;mode<5;mode++) {
+  dd_init(&engine);struct dd_deck *d=&engine.deck[0];dd_reset_deck(d,15);
+  struct bs_state *s=&d->stretch;bs_init(s,0,true);
+  uint32_t cursor=mode==0?BS_HOP:mode==1?BS_HOP-1:mode==2?500:BS_HOP-4;
+  atomic_store(&s->active,true);atomic_store(&s->actual,66846);atomic_store(&s->cursor,cursor);
+  atomic_store(&s->chosen,1000);atomic_store(&s->nominal,1000);atomic_store(&s->next_nominal,2077);
+  atomic_store(&d->source_clock,1000+(cursor*66846u>>16));d->source_fraction=(cursor*66846u&65535)*2;
+  atomic_store(&d->read,bs_retain(s));atomic_store(&d->playing,mode!=4);
+  d->envelope=256;d->last=(struct dd_wide_frame){1234,-4321};
+  for(unsigned stem=0;stem<4;stem++) {
+   atomic_store(&d->voice[stem].gain,256);d->voice[stem].current_gain=256;
+   atomic_store(&d->voice[stem].written,mode==2?atomic_load(&d->read):4000);
+   for(unsigned i=0;i<DD_RING;i++)d->voice[stem].ring[i]=(struct dd_frame){(int16_t)(i*17),(int16_t)(i*13)};
+  }
+  memcpy(&reference_engine,&engine,sizeof(engine));
+#ifdef DD_BLOCKED_COST_TEST
+  activate_calls=buffered_calls=0;
+#endif
+  dd_render(&engine,out,256);
+#ifdef DD_BLOCKED_COST_TEST
+  unsigned bound=mode==3?7:mode==4?0:1;
+  if(activate_calls>bound||buffered_calls>bound)fprintf(stderr,"blocked mode %u: activate=%u, buffered=%u (maximum %u)\n",mode,activate_calls,buffered_calls,bound);
+  assert(activate_calls<=bound&&buffered_calls<=bound);
+#endif
+  reference_render(&reference_engine,reference_out,256);
+  assert(!memcmp(out,reference_out,512*sizeof(*out)));compare_stretch_render_state();
+ }
+}
+static void test_stretch_settled_span(void)
+{
+ const uint32_t cursors[]={0,1,BS_OVERLAP-1,BS_OVERLAP,BS_HOP-129,BS_HOP-128};
+ const unsigned counts[]={0,1,2,255,256,257};
+ unsigned comparisons=0;
+ for(unsigned cursor=0;cursor<6;cursor++)for(unsigned block=0;block<6;block++)
+ for(unsigned half=0;half<2;half++)for(unsigned mode=0;mode<8;mode++)
+ for(unsigned wrap=0;wrap<2;wrap++) {
+  dd_init(&engine);atomic_store(&engine.master,128);
+  unsigned count=counts[block];uint32_t i=cursors[cursor],fraction=half?32768:0;
+  bool inside=count&&i+((fraction+(count-1)*32768u)>>16)+1<BS_HOP;
+  bool eligible=inside&&(mode==0||mode==6||mode==7);
+  for(unsigned k=0;k<2;k++) {
+   struct dd_deck *d=&engine.deck[k];dd_reset_deck(d,mode==7?11:15);
+   struct bs_state *s=&d->stretch;uint32_t nominal=wrap?UINT32_MAX-1000u:4000u;
+   uint32_t ratio=k?81920:32768;bs_init(s,nominal-3000u,true);
+   assert(bs_request(s,ratio));atomic_store(&s->active,true);atomic_store(&s->actual,ratio);
+   atomic_store(&s->chosen,nominal);atomic_store(&s->nominal,nominal);
+   atomic_store(&s->next_nominal,nominal+((BS_HOP*ratio)>>16));
+   atomic_store(&s->next_fraction,(BS_HOP*ratio)&65535);atomic_store(&s->cursor,i);
+   atomic_store(&s->sequence,2);s->active_tail=true;
+   uint32_t phase=(i*2+half)*ratio;d->fraction=fraction;d->source_fraction=phase&131071;
+   atomic_store(&d->source_clock,nominal+(phase>>17));
+   uint32_t retained=bs_retain(s);atomic_store(&d->read,retained);
+   atomic_store(&d->playing,mode!=5);atomic_store(&d->mute_mask,mode==6?15:0);
+   d->envelope=mode==2?128:256;d->starved=mode==3;d->last=(struct dd_wide_frame){1234,-4321};
+   for(unsigned stem=0;stem<4;stem++) {
+    atomic_store(&d->voice[stem].gain,256);
+    d->voice[stem].current_gain=mode==6?0:mode==1&&stem==0?128:256;
+    uint32_t needed=count?2+((fraction+(count-1)*32768u)>>16):2;
+    atomic_store(&d->voice[stem].written,mode==4?nominal+i+needed-1:retained+DD_RING);
+    for(unsigned n=0;n<DD_RING;n++)d->voice[stem].ring[n]=(struct dd_frame){
+     (int16_t)((n*137+stem*719+k*31)%60001-30000),
+     (int16_t)((n*83+stem*409+k*19)%60001-30000)};
+    for(unsigned n=0;n<BS_OVERLAP;n++)s->tail[stem][n]=d->voice[stem].present?
+     (struct bs_frame){(int16_t)(n*59+stem*211-15000),(int16_t)(n*41+stem*13-12000)}:
+     (struct bs_frame){0,0};
+   }
+   /* Exercise invalid, current and adjacent caches from preceding callbacks. */
+   s->cached_valid=mode%3!=0;s->cached_sequence=2;
+   s->cached_cursor=i&&mode%3==1?i-1:i;
+   for(unsigned stem=0;stem<4;stem++)for(unsigned which=0;which<2;which++) {
+    struct dd_frame x=d->voice[stem].present?
+     reference_stretch_sample(d,stem,s->cached_cursor+which):(struct dd_frame){0,0};
+    s->cached[stem][which]=(struct bs_frame){x.l,x.r};
+   }
+  }
+  memcpy(&reference_engine,&engine,sizeof(engine));
+#ifdef DD_STRETCH_SPAN_COST_TEST
+  activate_calls=buffered_calls=samples_calls=advance_calls=0;
+#endif
+  dd_render(&engine,out,count);
+#ifdef DD_STRETCH_SPAN_COST_TEST
+  if(eligible) {
+   if(activate_calls||buffered_calls||samples_calls||advance_calls)
+    fprintf(stderr,"settled span: activate=%u buffered=%u samples=%u advance=%u\n",activate_calls,buffered_calls,samples_calls,advance_calls);
+   assert(!activate_calls&&!buffered_calls&&!samples_calls&&!advance_calls);
+  }
+#endif
+  reference_render(&reference_engine,reference_out,count);
+  assert(!memcmp(out,reference_out,count*2*sizeof(*out)));compare_stretch_render_state();
+  if(eligible)for(unsigned k=0;k<2;k++) {
+   struct dd_deck *d=&engine.deck[k];struct bs_state *s=&d->stretch;
+   uint32_t last=i+((fraction+(count-1)*32768u)>>16);
+   assert(s->cached_valid&&s->cached_sequence==2&&s->cached_cursor==last);
+   for(unsigned stem=0;stem<4;stem++)for(unsigned which=0;which<2;which++) {
+    struct dd_frame x=d->voice[stem].present?reference_stretch_sample(d,stem,last+which):(struct dd_frame){0,0};
+    assert(s->cached[stem][which].l==x.l&&s->cached[stem][which].r==x.r);
+   }
+  }
+  comparisons++;
+ }
+ printf("PASS settled stretch span: %u exact PCM/state/cache checks across eligibility, overlap, grain, gain, phase, mute, missing-stem and wrap boundaries\n",comparisons);
+}
+/* Exercise the production direct-ring provider against the old generic
+ * per-stem provider with identical private work, publication and PCM state. */
+static struct bs_frame batch_test_source(void *ctx,unsigned stem,uint32_t p)
+{
+ const struct dd_deck *d=ctx;
+ if(!d->voice[stem].present)return (struct bs_frame){0,0};
+ struct dd_frame x=d->voice[stem].ring[p&(DD_RING-1)];return (struct bs_frame){x.l,x.r};
+}
+static bool batch_test_stretching(const struct dd_deck *d)
+{
+ const struct bs_state *s=&d->stretch;
+ return atomic_load(&s->enabled)&&(atomic_load(&s->active)||atomic_load(&s->ready)||atomic_load(&s->requested)!=65536u);
+}
+static void batch_test_mix(void *ctx,uint32_t source,uint32_t count,const uint16_t gain[4],struct bs_frame *out)
+{
+ for(uint32_t i=0;i<count;i++) {
+  int32_t l=0,r=0;
+  for(unsigned stem=0;stem<4;stem++) {
+   struct bs_frame x=batch_test_source(ctx,stem,source+i);
+   l+=(int32_t)x.l*gain[stem];r+=(int32_t)x.r*gain[stem];
+  }
+  out[i]=(struct bs_frame){l/1024,r/1024};
+ }
+}
+static uint32_t batch_rng=1;
+static uint32_t batch_random32(void){batch_rng=batch_rng*1664525u+1013904223u;return batch_rng;}
+static uint32_t service_with_generic_source(struct dd_engine *e,uint32_t budget)
+{
+ uint32_t used=bs_cancel_stale(&e->stretch_work)?1u:0u;
+ for(unsigned k=0;k<2&&used<budget;k++) {
+  struct dd_deck *d=&e->deck[k];struct bs_state *s=&d->stretch;
+  if(e->stretch_work.owner&&e->stretch_work.owner!=s)continue;
+  if(!batch_test_stretching(d)&&!e->stretch_work.owner)continue;
+  uint32_t oldest=atomic_load_explicit(&d->read,memory_order_acquire),written=oldest+DD_RING;
+  uint16_t gains[4];bool any=false;uint32_t mute=atomic_load_explicit(&d->mute_mask,memory_order_relaxed);
+  for(unsigned j=0;j<4;j++) {
+   gains[j]=(mute&(1u<<j))?0:reference_bound(atomic_load_explicit(&d->voice[j].gain,memory_order_relaxed),0,256);
+   if(!d->voice[j].present)continue;
+   any=true;uint32_t n=atomic_load_explicit(&d->voice[j].written,memory_order_acquire)-oldest;
+   if(n>DD_RING)n=0;
+   if(n<written-oldest)written=oldest+n;
+  }
+  if(!any)continue;
+  if(!atomic_load_explicit(&s->active,memory_order_acquire)&&
+     !atomic_load_explicit(&s->ready,memory_order_acquire)&&!e->stretch_work.owner) {
+   uint32_t p=atomic_load_explicit(&d->source_clock,memory_order_acquire);
+   s->first=p;atomic_store_explicit(&s->next_nominal,p,memory_order_relaxed);
+   atomic_store_explicit(&s->next_fraction,0,memory_order_relaxed);
+  }
+  used+=bs_service(s,&e->stretch_work,batch_test_source,d,gains,oldest,written,budget-used);
+ }
+ return used;
+}
+static void compare_batch_state(void){
+ struct bs_state *oa=engine.stretch_work.owner,*ob=reference_engine.stretch_work.owner;
+ assert((oa==NULL)==(ob==NULL));
+ if(oa)assert((oa==&engine.deck[0].stretch)==(ob==&reference_engine.deck[0].stretch));
+ engine.stretch_work.owner=NULL;reference_engine.stretch_work.owner=NULL;
+ assert(!memcmp(&engine,&reference_engine,sizeof(engine)));
+ engine.stretch_work.owner=oa;reference_engine.stretch_work.owner=ob;
+}
+static void fill_batch_rings(struct dd_engine *e){
+ for(unsigned k=0;k<2;k++) {
+  struct dd_deck*d=&e->deck[k];uint32_t end=atomic_load(&d->read)+DD_RING;
+  for(unsigned stem=0;stem<4;stem++) {
+   uint32_t w=atomic_load(&d->voice[stem].written);
+   while(w!=end){d->voice[stem].ring[w&(DD_RING-1)]=(struct dd_frame){(int16_t)((w*137u+stem*719u+k*37)%60001u-30000),(int16_t)((w*83u+stem*409u+k*71)%60001u-30000)};w++;}
+   atomic_store(&d->voice[stem].written,end);
+  }
+ }
+}
+static struct bs_state batch_cancelled;
+static bool reset_seen;
+static void reset_during_batch(void *ctx,uint32_t p,uint32_t count,const uint16_t gain[4],struct bs_frame *out){
+ batch_test_mix(ctx,p,count,gain,out);bs_init(&batch_cancelled,123,true);reset_seen=true;
+}
+/* A reset injected into a private batch is deliberately more adversarial
+ * than the exclusive production reset contract. It must never publish a
+ * stale descriptor or touch shared tail data afterward. */
+static void test_batch_cancel(void){
+ const uint16_t gain[4]={256,256,256,256};
+ for(unsigned phase=0;phase<2;phase++) {
+  dd_init(&engine);dd_reset_deck(&engine.deck[0],15);fill_batch_rings(&engine);memset(&engine.stretch_work,0,sizeof(engine.stretch_work));
+  bs_init(&batch_cancelled,0,true);bs_request(&batch_cancelled,66846);
+  while(!atomic_load(&batch_cancelled.ready))assert(bs_service(&batch_cancelled,&engine.stretch_work,batch_test_source,&engine.deck[0],gain,0,DD_RING,1024));
+  assert(bs_activate(&batch_cancelled,NULL,NULL));atomic_store(&batch_cancelled.cursor,384);
+  if(phase)while(engine.stretch_work.stage!=3)assert(bs_service(&batch_cancelled,&engine.stretch_work,batch_test_source,&engine.deck[0],gain,0,DD_RING,8));
+  reset_seen=false;bs_service_with_batch(&batch_cancelled,&engine.stretch_work,batch_test_source,&engine.deck[0],gain,0,DD_RING,1024,reset_during_batch);
+  assert(reset_seen&&!atomic_load(&batch_cancelled.ready));
+  if(engine.stretch_work.owner){assert(bs_service(&batch_cancelled,&engine.stretch_work,batch_test_source,&engine.deck[0],gain,0,DD_RING,8)==1);assert(!engine.stretch_work.owner);}
+  assert(!atomic_load(&batch_cancelled.ready)&&batch_cancelled.first==123);
+  for(unsigned stem=0;stem<4;stem++)for(unsigned i=0;i<BS_OVERLAP;i++)assert(!batch_cancelled.tail[stem][i].l&&!batch_cancelled.tail[stem][i].r);
+ }
+}
+static void test_mix_batch_differential(void){
+ test_batch_cancel();unsigned checks=0;
+ const uint32_t budgets[]={8,9,31,64,127,1024,65536};
+ for(unsigned scenario=0;scenario<24;scenario++) {
+  dd_init(&engine);dd_init(&reference_engine);
+  for(unsigned k=0;k<2;k++) {
+   uint8_t mask=(scenario%15)+1;uint32_t origin=scenario&1?UINT32_MAX-2000:0;
+   dd_reset_deck(&engine.deck[k],mask);dd_set_stretch(&engine.deck[k],true);
+   atomic_store(&engine.deck[k].read,origin);atomic_store(&engine.deck[k].source_clock,origin);
+   bs_init(&engine.deck[k].stretch,origin,true);bs_request(&engine.deck[k].stretch,k?81920:32768);
+   atomic_store(&engine.deck[k].playing,1);
+   for(unsigned stem=0;stem<4;stem++)atomic_store(&engine.deck[k].voice[stem].written,origin);
+  }
+  memcpy(&reference_engine,&engine,sizeof(engine));
+  for(unsigned turn=0;turn<2000;turn++) {
+   if(turn%13==0)for(unsigned k=0;k<2;k++)for(unsigned stem=0;stem<4;stem++) {
+    uint16_t gain=(turn/13)%3?batch_random32()%257:256;atomic_store(&engine.deck[k].voice[stem].gain,gain);atomic_store(&reference_engine.deck[k].voice[stem].gain,gain);
+   }
+   if(turn%79==0)for(unsigned k=0;k<2;k++) {
+    uint32_t mute=batch_random32()&15u;atomic_store(&engine.deck[k].mute_mask,mute);atomic_store(&reference_engine.deck[k].mute_mask,mute);
+    uint32_t rate=32768+batch_random32()%(81920-32768+1);bs_request(&engine.deck[k].stretch,rate);bs_request(&reference_engine.deck[k].stretch,rate);
+   }
+   if(turn%211==0) {unsigned k=batch_random32()%2;atomic_store(&engine.deck[k].playing,0);atomic_store(&reference_engine.deck[k].playing,0);}
+   if(turn%211==7)for(unsigned k=0;k<2;k++){atomic_store(&engine.deck[k].playing,1);atomic_store(&reference_engine.deck[k].playing,1);}
+   fill_batch_rings(&engine);fill_batch_rings(&reference_engine);
+   uint32_t budget=budgets[turn%7];
+   assert(dd_stretch_service(&engine,budget)==service_with_generic_source(&reference_engine,budget));compare_batch_state();checks++;
+   if(turn%3==0){unsigned count=1+(batch_random32()%512);dd_render(&engine,out,count);dd_render(&reference_engine,reference_out,count);assert(!memcmp(out,reference_out,count*2*sizeof(*out)));compare_batch_state();checks++;}
+   if(turn==999){
+    for(unsigned k=0;k<2;k++) {dd_reset_deck(&engine.deck[k],15);dd_set_stretch(&engine.deck[k],true);dd_reset_deck(&reference_engine.deck[k],15);dd_set_stretch(&reference_engine.deck[k],true);bs_request(&engine.deck[k].stretch,66846);bs_request(&reference_engine.deck[k].stretch,66846);atomic_store(&engine.deck[k].playing,1);atomic_store(&reference_engine.deck[k].playing,1);}
+   }
+  }
+ }
+ printf("PASS %u exact whole-engine/state/planner/scratch/PCM checks: generic vs batch, changing per-slice gains, mutes, source wrap, sparse stems, pause, tempo, reset\n",checks);
+}
+
 int main(void)
 {
+ test_mix_batch_differential();
+ test_stretch_settled_span();
+ test_stretch_blocked_callback();
+ test_stretch_retention_block_boundary();
  test_eight_stems();test_starvation_holds_deck();test_wrap_speed_and_bounds();test_independent_source_clock();
  test_pickup();test_codec();test_saturation();test_interpolation_full_range();test_render_differential();
  test_final_bus_headroom_and_pause();test_master_changes_preserve_transport();
- test_stretch_finite_rings_and_coalescing();
+ test_stretch_finite_rings_and_coalescing();test_stretch_shared_worker_deadline();test_stretch_shared_worker_phase_and_pause();test_stretch_render_differential();
  puts("PASS: eight distinct stems, independent decks, mute/gain ramps, starvation sync, ring wrap, speed bounds, pickup, codecs, full-range interpolation, final-bus clipping, master changes and independent source/reclaim clocks");
 }

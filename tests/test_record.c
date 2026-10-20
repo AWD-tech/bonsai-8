@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static struct bonsai_record record;
@@ -193,13 +194,16 @@ static void test_all_pcm16_quantization(void)
  }
 }
 
-#define CONCURRENT_FRAMES 200003u
+/* The producer is deliberately paced by ring room: long runs establish
+ * bounded-memory/sample integrity, never eMMC throughput or real-time safety.
+ * BONSAI_RECORD_SPSC_FRAMES=86400003 exercises one hour plus an exact tail. */
+static uint32_t concurrent_frames = 200003u;
 static void *produce(void *unused)
 {
  (void)unused;
  int16_t chunk[64*4];
- for (uint32_t i = 0; i < CONCURRENT_FRAMES;) {
-  unsigned n = CONCURRENT_FRAMES - i < 64 ? CONCURRENT_FRAMES - i : 64;
+ for (uint32_t i = 0; i < concurrent_frames;) {
+  unsigned n = concurrent_frames - i < 64 ? concurrent_frames - i : 64;
   /* Simulate an adequately fast storage consumer; the actual audio API
    * never waits. Only this test's producer pacing waits for free capacity. */
   while (atomic_load(&record.written) - atomic_load(&record.read) >
@@ -226,14 +230,22 @@ static void test_concurrent_spsc(void)
   assert(bonsai_record_commit_sector(&record)); consumed += n;
  }
  assert(pthread_join(producer, NULL) == 0);
- assert(consumed == CONCURRENT_FRAMES);
- assert(atomic_load(&record.source_frames) == CONCURRENT_FRAMES * 2u);
- assert(atomic_load(&record.committed_frames) == CONCURRENT_FRAMES);
- assert(atomic_load(&record.committed_sectors) == (CONCURRENT_FRAMES + 139u)/140u);
+ assert(consumed == concurrent_frames);
+ assert(atomic_load(&record.source_frames) == concurrent_frames * 2u);
+ assert(atomic_load(&record.committed_frames) == concurrent_frames);
+ assert(atomic_load(&record.committed_sectors) == (concurrent_frames + 139u)/140u);
+ printf("SPSC replay: %u native frames (%.6f synthetic seconds), fixed %u-frame ring\n",
+        concurrent_frames, concurrent_frames / 24000.0, BONSAI_RECORD_RING);
 }
 
 int main(void)
 {
+ const char *requested = getenv("BONSAI_RECORD_SPSC_FRAMES");
+ if (requested) {
+  char *end; unsigned long frames = strtoul(requested, &end, 10);
+  assert(*requested && !*end && frames > 0 && frames <= UINT32_MAX / 2u);
+  concurrent_frames = (uint32_t)frames;
+ }
  test_golden_and_partial_stop(); test_odd_chunks_and_empty_stop();
  test_wrap_and_commit_ownership(); test_overflow_and_storage_failure();
  test_all_pcm16_quantization(); test_concurrent_spsc();

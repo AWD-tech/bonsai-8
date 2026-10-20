@@ -42,8 +42,9 @@ def main():
   ram_used=max(s['sh_addr']+s['sh_size'] for s in ram)-0x20000000
   assert ram_used<=0x40000
  sources=[ROOT/'README.md',ROOT/'README-upstream.md',ROOT/'LICENSE',ROOT/'HARDWARE_TEST.md',ROOT/'USER_MANUAL.md',ROOT/'CONTRIBUTING.md',ROOT/'RELEASE_POLICY.md']
- for directory in ['firmware','boards','tools','tests']:
-  sources += [p for p in (ROOT/directory).rglob('*') if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.log']
+ for directory in ['firmware','boards','tools','tests','docs']:
+  sources += [p for p in (ROOT/directory).rglob('*') if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.log'
+              and (directory!='docs' or p.suffix in {'.md','.txt','.json'})]
  manifest={
   'name':'Bonsai 8','version':version,'effects':[],'status':'Hardware-test candidate. See HARDWARE_TEST.md for version-specific measured results; packaging does not establish flashing or hardware verification.',
   'upstream_commit':'44ba1ecbec6c844dba7f47eacee94c53af8ab10d',
@@ -59,6 +60,7 @@ def main():
    'Python: firmware-compatible PCM14 encoding, metadata preservation, bad-table rejection, real ffmpeg resampling, hardware USB discovery and robust diagnostics',
    'C ASan/UBSan: physical telemetry queue, tap edges, overflow, counter wrap, stereo capture ordering and bounds',
    'C ASan/UBSan: streamed pitch-preserving planning budgets, finite rings, tempo coalescing, raw stem gain changes, nominal clocks, beat tap/follow/nudge and reset isolation',
+   'Live-sync host screens: rendered bass/stereo pitch, isolated transient timing, poisoned scratch, bounded work slices and ten simulated minutes; physical timing and listening still required',
    'C/Python: bounded CDC partial writes, reply ordering, session resets, backpressure, actual control replay and recording re-arm',
    'ARM ELF/vector/flash/RAM validation; dual mixer linked; upstream audio rings absent'],
   'source_sha256':{str(p.relative_to(ROOT)):digest(p) for p in sorted(sources)}
@@ -74,7 +76,10 @@ def main():
  with zipfile.ZipFile(DIST/f'{name}.zip','w',zipfile.ZIP_DEFLATED) as z:
   for filename in [f'{name}.bin',f'{name}.elf','README.md','HARDWARE_TEST.md','manifest.json','SHA256SUMS','USER_MANUAL.md','CONTRIBUTING.md']:
    z.write(DIST/filename,filename)
-  for path in sources: z.write(path,'source/'+str(path.relative_to(ROOT)))
+  for path in sources:
+   relative=path.relative_to(ROOT)
+   z.write(path,'source/'+str(relative))
+   if relative.parts[0]=='docs': z.write(path,str(relative))
  print(json.dumps({k:manifest[k] for k in ['binary_bytes','ram_used_bytes','binary_sha256','initial_stack','reset_vector']},indent=2))
  print(DIST/f'{name}.zip')
 if __name__=='__main__': main()

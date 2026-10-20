@@ -47,6 +47,11 @@ class StatusFormatTests(unittest.TestCase):
         data = json.loads(result.stdout)
         self.assertLess(len(result.stdout.encode()),size)
         self.assertEqual(data['grid_bpm'],[4294967295]*2)
+        self.assertEqual(data['plan_underruns'],[4294967295]*2)
+        self.assertEqual(data['source_underruns'],[4294967295]*2)
+        for key in ('plan_us','plan_calls','plan_units','plan_max','plan_audio_us'):
+            self.assertEqual(data[key],4294967295)
+        self.assertEqual(data['stretch_active'],[4294967295]*2)
         self.assertEqual(len(data['gains']),8)
         self.assertEqual(data['record']['slot'],-2147483648)
         self.assertEqual(data['pitch_preserving'],1)

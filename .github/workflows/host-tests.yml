@@ -13,6 +13,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Install host dependencies
         run: |
           sudo apt-get update
@@ -21,8 +24,63 @@ jobs:
           .build-env/python/bin/pip install pyserial==3.5 pyelftools==0.33
       - name: Run C sanitizers and transfer tests
         run: ./tools/test.sh
+      - name: Exercise live sync through the eight-stem engine
+        run: ./tests/run_live_sync.sh --functional
+      - name: Test companion website
+        run: npm test --prefix site
+  live-sync-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Measure rendered pitch, stereo and audible beat alignment
+        shell: bash
+        run: ./tests/run_live_sync.sh --quality 2>&1 | tee live-sync-quality.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-live-sync-quality
+          path: live-sync-quality.log
+  browser-audio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Test companion website
-        run: npm test --prefix site
+      - name: Install isolated browser test dependencies
+        run: |
+          npm install --no-save --prefix "$RUNNER_TEMP/browser-test" playwright@1.62.1
+          "$RUNNER_TEMP/browser-test/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Check upload preparation in foreground and hidden tabs
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/browser-test/node_modules/playwright/index.mjs
+          UPLOAD_VALIDATION_REPORT: ${{ runner.temp }}/upload-responsiveness.json
+        run: node site/tests/upload-responsiveness-browser.mjs
+      - name: Generate synthetic recording with the actual firmware adapter
+        env:
+          RECORDING_FIXTURE_DIR: ${{ runner.temp }}/recording-fixture
+        run: |
+          mkdir -p "$RECORDING_FIXTURE_DIR"
+          PYTHONPATH=tests python - <<'PY'
+          import os
+          from test_record_adapter import RecordingAdapterTests
+          RecordingAdapterTests.setUpClass()
+          try:
+              RecordingAdapterTests().run_case('fixture', os.environ['RECORDING_FIXTURE_DIR'])
+          finally:
+              RecordingAdapterTests.tearDownClass()
+          PY
+      - name: Run native Web Audio monitoring, lifecycle and recording export checks
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/browser-test/node_modules/playwright/index.mjs
+          RECORDING_FIXTURE_DIR: ${{ runner.temp }}/recording-fixture
+          AUDIO_VALIDATION_REPORT: ${{ runner.temp }}/browser-audio.json
+        run: node site/tests/live-audio-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-browser-audio
+          path: ${{ runner.temp }}/browser-audio.json

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {STORAGE,join,u32,sha256,encodeP14S,decodeAudioSector,pcmWav,deleteSongIndex,publishSongIndex,indexSongs,validateLayout,DeviceLibrary} from '../public/device-library.js';
+import {encodePlaylist,decodePlaylist,playlistRows,playlistIdentity} from '../public/playlists.js';
 const text=s=>new TextEncoder().encode(s),dv=a=>new DataView(a.buffer,a.byteOffset,a.byteLength);
 function index(){const m=new Uint8Array(1024);dv(m).setUint32(0,STORAGE.magic,true);return m;}
 function extended(){const x=new Uint8Array(1536);dv(x).setUint32(0,STORAGE.x3Magic,true);dv(x).setUint16(4,1,true);return x;}
@@ -28,3 +29,28 @@ test('one-stem recorded mix exports as a complete stereo WAV, without device wri
 test('malformed prepared audio is rejected before opening storage or writing sectors',async()=>{for(const stems of [[],[stem(),empty(),empty(),{frames:1,blocks:1,data:new Uint8Array(3)}],[stem(),empty(),empty(),{frames:-1,blocks:0,data:new Uint8Array()}]]){const fake=fakeDevice();await assert.rejects(new DeviceLibrary(fake.connection).upload(1,stems),/Prepared stems/);assert.equal(fake.commands.length,0);assert.equal(fake.writes.length,0);}});
 test('damaged checkpoints cannot skip unverified audio or use fractional sectors',async()=>{for(const verified of [undefined,[],[.5,0,0,0],[2,0,0,0],[-1,0,0,0]]){const fake=fakeDevice(),stems=[stem(),empty(),empty(),empty()],signature=await sha256(join(...stems.map(s=>join(u32(s.frames),s.data)))),identity=await sha256(join(index(),extended()));fake.store.setItem(`bonsai8-upload-1-${signature}`,JSON.stringify({identity,verified}));const receipt=await new DeviceLibrary(fake.connection,{checkpointStore:fake.store}).upload(1,stems);assert.equal(receipt.audio_id,signature);assert.equal(receipt.slot,1);assert.equal(fake.writes[0],4096);}});
 test('failed deletion does not claim success and never writes audio or initializes storage',async()=>{const fake=fakeDevice({failBlock:1}),published=publishSongIndex(index(),extended(),2,[stem(),empty(),empty(),empty()]);fake.sectors.set(0,published.meta.slice(0,512));fake.sectors.set(1,published.meta.slice(512));await assert.rejects(new DeviceLibrary(fake.connection).remove(2),/rejected/);assert.equal(indexSongs(join(fake.sectors.get(0),fake.sectors.get(1)))[0].slot,2);assert.ok(fake.commands.every(c=>['S','R','B'].includes(c)));assert.deepEqual(fake.writes,[]);});
+
+function playlistDevice(options={}){
+ const f=fakeDevice(options),published=publishSongIndex(index(),extended(),1,[stem(),empty(),empty(),empty()]);
+ f.sectors.set(0,published.meta.slice(0,512));f.sectors.set(1,published.meta.slice(512));for(let i=0;i<3;i++)f.sectors.set(3+i,published.x3.slice(i*512,i*512+512));
+ f.connection.library=async()=>({playlists:1,playlist_state:0});
+ return {...f,meta:published.meta,x3:published.x3,entries:[{slot:1,bpm:123.45,decks:1,identity:playlistIdentity(published.meta,published.x3,1)}]};
+}
+test('saving alternate playlist banks survives reconnect and leaves index, grids, X3 and audio untouched',async()=>{
+ const f=playlistDevice(),before=new Map([...f.sectors].map(([k,v])=>[k,v.slice()])),library=new DeviceLibrary(f.connection);await library.savePlaylists(f.entries);assert.deepEqual(f.writes,[6]);for(const [k,v] of before)assert.deepEqual(f.sectors.get(k),v);
+ assert.equal(decodePlaylist(f.sectors.get(6)).rows[0].bpm,123.45);const first=f.sectors.get(6).slice();
+ await new DeviceLibrary(f.connection).savePlaylists([{...f.entries[0],bpm:90,decks:2}]);assert.deepEqual(f.writes,[6,7]);assert.deepEqual(f.sectors.get(6),first);
+ const restored=playlistRows([f.sectors.get(6),f.sectors.get(7)],f.meta,f.x3);assert.equal(restored[0].bpm,90);assert.equal(restored[0].decks,2);
+});
+test('playlist save refuses old firmware, stale library, foreign data and unacknowledged writes',async()=>{
+ for(const failure of ['firmware','stale','foreign','write','readback']){
+  const f=playlistDevice({failBlock:failure==='write'?6:null,corruptAfterFlush:failure==='readback'?6:null});
+  if(failure==='firmware')f.connection.library=async()=>({});if(failure==='stale')f.entries[0].identity^=1;if(failure==='foreign')f.sectors.set(7,new Uint8Array(512).fill(0x33));
+  await assert.rejects(()=>new DeviceLibrary(f.connection).savePlaylists(f.entries));
+  assert.ok(f.writes.every(b=>b===6));if(['firmware','stale','foreign','write'].includes(failure))assert.equal(f.writes.length,0);
+ }
+});
+test('deleting then reusing an identical slot cannot inherit its old BPM or deck membership',async()=>{
+ const f=playlistDevice(),library=new DeviceLibrary(f.connection,{checkpointStore:f.store});await library.savePlaylists(f.entries);await library.remove(1);await library.upload(1,[stem(),empty(),empty(),empty()]);
+ const rows=playlistRows([f.sectors.get(6),f.sectors.get(7)],join(f.sectors.get(0),f.sectors.get(1)),join(f.sectors.get(3),f.sectors.get(4),f.sectors.get(5)));assert.equal(rows[0].bpm,0);assert.equal(rows[0].decks,3);
+});

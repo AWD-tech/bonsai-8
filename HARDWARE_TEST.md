@@ -1,6 +1,232 @@
 # Physical test — 2026-09-30
 
-## Current result — October 3, 2026
+## 0.4.12 hardware failures with USB and tempo — October 20, 2026
+
+**0.4.12 was flashed and is not eligible for release.** Its actual-song planner
+optimization reduces unnecessary onset analysis and batches bounded source and
+tail work. The application is 122,012 bytes with 254,756 bytes of RAM, built from
+committed source `4d95761`. SHA-256:
+`3dbad90a5dd48a567aa1aef97c09bdfd95ee67aced460b2c537828e9d96f56e9`.
+Application-only flashing completed at 02:56 EDT. Runtime identity, five song
+entries, eight metadata sectors and 51 representative audio-sector hashes pass;
+this is not a full audio/application readback or a fresh preflash listing.
+
+At unity, eight full stems passed stable twenty-second dry and mirror-only
+windows. USB audio alone failed with 292/303 new source underruns; USB audio with
+100 ms mirroring failed with 287/296. Controls stayed unchanged and all eight
+gains stayed at 256. There were no plan underruns or monitored storage, I2S,
+capture or clipping errors in those unity windows.
+
+At approximately 1.01x on both decks, stable twenty-second windows failed with
+207/207 missing-plan underruns without USB and 156/155 with USB plus mirroring.
+The combined run advanced only 166,382/165,575 native source frames in 20.099
+seconds. Fewer underrun episodes under USB do not mean improved playback;
+source progression was also slower. No source/error/clipping deltas increased.
+USB produced 20,081 packets and 176 mirror replies during the combined window.
+
+The user heard stutter during the unity USB test and reported that it stopped
+when that test ended. Named USB captures were non-silent stereo, but neither
+clean listening nor browser speaker playback is established. All three CI jobs
+passed for this source; hardware failures still block promotion.
+See [the complete candidate report](docs/sync-validation-0412.md). The site
+installer remains unchanged.
+
+## 0.4.11 hardware tempo failure — October 20, 2026
+
+**0.4.11 failed the stable single-changed-deck tempo test.** This candidate batches
+settled stretched playback, stops repeated blocked-state checks, calculates
+retention once per callback, and uses packed stereo correlation with exact
+rolling energy. Reference quantization can change near-tied grain choices; the
+search geometry and quality gates are unchanged. Thread runtime profiling is
+included in the physical measurements below.
+
+Nine C sanitizer suites, 59 Python tests, 114 host audio screens, 600 simulated
+seconds and 11,352 exact renderer comparisons pass. The application is 120,892
+bytes; RAM is 254,756 / 262,144 bytes. SHA-256:
+`8b22168c1ae802cba09a1a1b516cfbae401a299c9590b9178cc9386a7bf7da8b`.
+The application-only flash completed at 02:05 EDT: all 30 pages / 531 chunks
+and both CRC-valid finalizations were acknowledged. The updater waited and
+observed the expected USB disconnect about 118 ms after the start command.
+Private evidence: `flash-20261020-020539.jsonl`. This is not application-flash
+readback. After delayed USB enumeration, normal runtime reports `bonsai-8-0.4.11`.
+All five song entries match the fresh preflash listing; all eight metadata sectors
+and 51 representative audio-sector hashes match the reference. This does not
+establish full audio readback. Evidence: `bonsai-0.4.11-postflash.json`.
+The stable 20.071-second unity-tempo baseline passed with both decks playing,
+all eight gains fixed at 256, no mutes and USB capture off. There were no new
+plan/source underruns, monitored errors or clips, and no control changes.
+Both decks advanced 481,664 source frames; mean callback time was 1,693.02
+microseconds. Scheduler-attributed shares were 31.5% audio, 29.0% storage,
+8.4% main and 28.1% idle; these shares include interrupt attribution.
+Evidence: `bonsai-0.4.11-eight-dry.json`.
+
+A subsequent stable **20.034-second** run with A at 1x and B at 66846/65536
+(~1.02x) failed. Both decks stayed playing, all eight gains stayed at 256, no
+controls changed and USB capture was off. B accumulated **131 new missing-plan
+underruns**; A added none. Both source-underrun counters and all monitored
+error/clipping deltas stayed zero. A advanced 481,024 native frames while B
+advanced only 140,057. Mean audio callback time was 2,241.32 microseconds.
+
+Planner work totaled 7,252,320 charged units in 7,358 calls. Elapsed slice time
+was 5,735,912 microseconds, including 2,110,042 microseconds of audio preemption.
+The remaining 3,625,870 microseconds also include controls, USB and other
+interrupts; this is not exclusive planner CPU time. Scheduler-attributed shares
+were 41.4% audio, 34.6% storage, 8.2% main and 12.7% idle. These include interrupt
+attribution and do not establish planner-only utilization or deadline headroom.
+Evidence: `bonsai-0.4.11-eight-tempo-b.json`.
+
+The lower callback mean and passing host checks did not resolve the hardware
+failure. Investigation now targets deadlines using the actual song material
+before another build. Changed-tempo USB/mirroring, listening and sustained
+recording remain open gates. The default installer stays on 0.4.6; do not promote
+0.4.11 as verified.
+All three GitHub CI jobs passed for source `a6c60ef` (run 39377562628).
+See [the candidate report](docs/sync-validation-0411.md).
+
+
+## 0.4.10 hardware tempo failure — October 20, 2026
+
+**0.4.10 failed the stable single-changed-deck tempo test.** It starts private
+planning during the current overlap, parks completed searches without holding the
+shared worker and retains safe tail-write timing. Bounded private-stage checks
+and a flash window table reduce repeated work; matching rules are unchanged.
+Nine C sanitizer suites, 59 Python tests, 114 host audio screens and 600 simulated
+seconds pass. Those software results did not establish physical tempo stability.
+The application uses 116,948 flash bytes and 255,564 RAM bytes; SHA-256
+`85f76ea087b71a9b825a6f06d647c5ec6943d9023a8e1e9f874bae177801fda1`.
+See [the candidate report](docs/sync-validation-0410.md).
+
+The application-only transfer completed at 01:33 EDT: 29 pages, 514 chunks and
+both CRC-valid finalizations, followed by the expected USB reset about 119 ms
+after the start command. Normal runtime then reported `bonsai-8-0.4.10`. All five
+song entries, eight metadata sectors and 51 representative audio sectors match
+the previous references. This is neither application-flash nor full audio
+readback. Private evidence: `flash-20261020-013302.jsonl` and
+`bonsai-0.4.10-postflash.json`.
+
+A stable **20.018-second** observation held both decks playing, A at 1x and B at
+66846/65536 (~1.02x), all eight gains at 256, no mutes, master 8 and USB capture
+off. No transport, speed, gain, mute or master changes occurred. B accumulated
+**96 new missing-plan underruns**; A added none. Both source-underrun counters and
+all monitored storage/I2S/USB error and clipping deltas remained zero. A advanced
+480,384 native source frames; B advanced only 103,402 (4.31 seconds of source audio).
+Mean callback time was 2,764.87 microseconds. This is a stable physical failure,
+not a changing-controls comparison or an old cumulative-counter reading.
+
+Planner work totaled 5,166,384 charged units in 5,256 calls. Its 5,536,639
+microseconds of elapsed slice time included 2,626,695 microseconds of audio
+preemption. The remaining 2,909,944 microseconds still include controls, USB and
+other interrupts; they are **not exclusive planner CPU time**. Private evidence:
+`bonsai-0.4.10-observed-tempo.json`. Live-tempo stability is unresolved; changed-
+tempo USB/mirroring and listening remain open gates. The default website
+installer stays on 0.4.6, and 0.4.10 must not be promoted as verified.
+
+
+## Previous 0.4.9 planner candidate — October 20, 2026
+
+The 0.4.9 candidate batched scratch-only correlation work to remove redundant per-comparison atomic validation. It preserves scoring, work budgets and validation before shared writes/publication, with no planner RAM increase. New service timing counters include preemption, so they are not exclusive CPU measurements. The first 0.4.9 transfer completed, but the user reported no normal power-on after reconnecting. No normal USB runtime appeared. The device was recovered to the exact previous 0.4.8 binary; runtime, five-song index, eight metadata sectors and 51 representative audio sectors passed afterward. No 0.4.9 physical pass is claimed. See [the planner report](docs/sync-validation-049.md).
+
+The 0.4.9 application is 114,888 bytes, SHA-256 `7dfe867e40578d6be632bb92868bf80a2c92058a1c9172121c6b0f4cf8198165`, packaged from `d33c470ed4e29d5b23e410380680db6094fd8afe`. Its 29 pages / 505 chunks and both CRC-valid finalizations completed, but that is not flash readback or proof of startup. Recovery to 0.4.8 completed with 28 pages / 503 chunks. Private evidence: `flash-20261020-005357.jsonl`, `flash-20261020-005604.jsonl`, and `bonsai-0.4.8-recovery-postflash.json`.
+
+A read-only comparison with the [reference updater](https://solderless.engineering/utility/js/firmware.js?v=3) found matching page/chunk/finalization handling, including short last pages. The reference waits for a start response, disconnect or three-second timeout before closing; the local helper closed immediately after the start write/flush. A controlled retry keeps the exact binary and packet sequence, changing only this wait. The controlled retry completed at 01:15 EDT with the same 29 pages / 505 chunks and binary hash. Keeping the session open observed an expected device disconnect about 116 ms after start. The user then confirmed power-on; runtime reports `bonsai-8-0.4.9`, all five song entries match, and all eight metadata / 51 representative audio sectors pass. Private evidence: `flash-20261020-011459.jsonl` and `bonsai-0.4.9-postflash.json`. This single retry does not establish the first failure cause: retransfer and restart were both repeated. The default installer stayed unchanged; the subsequent playback failure is recorded below.
+
+The user then reported stuttering on tempo changes again. A read-only snapshot
+showed 343 cumulative missing-plan underruns on B, no source underruns or storage
+errors, but A was already paused and both speeds had returned to 1x. This is a
+listening failure with supporting cumulative diagnostics, not a stable tempo
+measurement. A subsequent 50-second unchanged observation added no underruns.
+Private evidence: `bonsai-0.4.9-user-stutter-20261020.json` and
+`bonsai-0.4.9-stutter-repeat-gesture.json`. 0.4.9 remains withheld.
+
+A subsequent **stable 20.032-second** test reproduced the failure with both decks
+playing, A at 66846/65536 (~1.02x), B at 1x, all eight gains 255–256, master 8,
+no effects and no USB capture. There were **87 new plan underruns on A**, zero
+on B, zero source underruns, and zero storage/I2S/USB errors or clipping. No
+transport, speed, mute or master setting changed. A advanced only 93,708 native
+frames while B advanced 480,768, confirming audible holds rather than merely
+an old cumulative counter. Mean callback time was 2,732.7 microseconds. Planner
+work was 4,337,574 charged units in 4,411 calls, with 5,092,967 microseconds elapsed
+including preemption. Evidence: `bonsai-0.4.9-tempo-user-confirmed.json`. Earlier
+admission is a software hypothesis, not yet a hardware fix; total CPU capacity
+must also be checked on the next build.
+
+
+## 0.4.8 tempo-performance candidate — October 20, 2026
+
+The 0.4.7 device failure below motivated a renderer optimization, not a relaxed audio-quality threshold. Unchanged dry decks retain their efficient path while the other deck stretches; source pairs are reused across native-frame midpoints, and renderer-owned state avoids unnecessary atomic read-modify-write operations. New `plan_underruns` and `source_underruns` counters classify the immediate blocked renderer state, not the ultimate cause. Host exact-output and quality regressions pass. The pinned application was flashed on October 20 at 00:43 EDT: 28 pages / 503 chunks and both CRC-valid finalization replies completed. Normal runtime reports `bonsai-8-0.4.8`. All five song entries match the fresh preflash listing; all eight metadata sectors and 51 representative audio-sector hashes match the October 17 reference. Changed-tempo playback failed again; this binary must not replace the default installer. Storage layout, recording controls and updater write bounds are unchanged. See [the detailed candidate report](docs/sync-validation-048.md).
+
+0.4.8 application: 114,668 bytes, RAM 255,524 / 262,144 bytes, SHA-256 `2b64a4d99df98cf23a9a6f43e6ed5d9ea6112b7b68ded02d6eed675d73850f65`. Packaged source commit: `44050ff9f79bc3fb673a3cc4dd743bc261bf98bd`. Only the application region was written. Finalization acknowledgements are not application readback. Private evidence: `hardware-tests/flash-20261020-004351.jsonl`; fresh preflash song index: `hardware-tests/bonsai-0.4.8-beforeflash.json`; runtime and preservation: `hardware-tests/bonsai-0.4.8-postflash.json`.
+
+A stable 20.021-second unity-tempo window passed with both decks playing, all eight gains 256, no mutes, no new underruns/errors/clips and a 1,668.0 microsecond callback mean. The user then reported stuttering or pitch changes. An initial tempo capture included control changes and is not a stable comparison. A subsequent stable 20.030-second window with **both decks at 66846/65536 (~1.02x)**, eight gains 255–256 and master 8 failed: **61/62 new underruns, all classified as missing tempo plans**, zero source underruns and zero storage/USB/I2S errors or clips. Mean callback time was 2,782.4 microseconds. These counters identify the immediate plan wait; the cumulative 7,814 microsecond callback peak is not specific to this stable interval. Evidence: `bonsai-0.4.8-eight-dry.json`, `bonsai-0.4.8-eight-tempo-b-gesture.json`, `bonsai-0.4.8-eight-tempo-b.json`, and `bonsai-0.4.8-eight-tempo-current.json`. The next fix targets the planner's repeated checks inside its correlation loop; no new hardware pass is implied.
+
+## 0.4.7 device session — October 20, 2026
+
+The pinned 114,328-byte application (SHA-256
+`bc263e96ff5d2aaab4b102355b093dba9402514647ff836e0f3d1992170a7437`)
+flashed with 502 chunks, 28 pages and CRC-valid finalization acknowledgements.
+Normal runtime reports `bonsai-8-0.4.7`. Five occupied songs, all eight metadata
+sectors and 51 representative audio-sector hashes match the October 17 snapshot.
+The player was already in bootloader, so there was no fresh preflash snapshot.
+No song storage was written; application-flash readback remains unavailable.
+
+A stable 20.058-second dry window passed: both decks at 1×, eight gains 256,
+no mutes, zero new underruns/errors/clips; mean callback time 1,642.3 µs.
+A 20.106-second window using the actual website poll/parser through a serial
+adapter also had zero new underruns or audio/storage errors with named USB
+capture active, 39 samples and 183 mirror replies. The capture contained
+18.944 seconds of non-silent 48 kHz stereo (peak 805, RMS 165.8). This is not
+an actual browser speaker-output test. An earlier dry window included master
+and fader movement: zero dropouts, but not a stable eight-full-stem pass.
+
+**Live tempo failed the listening test.** After two forward wheel taps the user
+reported stuttering or pitch changes. The next snapshot showed A at 66846/65536
+(~1.02×), cumulative underruns A=139/B=19 (previous stable tests ended at zero),
+and a cumulative maximum audio callback of 8,798 µs versus a 5,333 µs block.
+B had been paused by that snapshot, so this is not a controlled steady
+comparison and does not isolate every cause. It is sufficient to keep live
+sync unverified and hold 0.4.7 from default release promotion. Recording,
+physical beat-follow/nudge, browser listening/reconnection and browser flashing
+remain open gates. No 0.4.6 evidence is relabeled as a 0.4.7 pass.
+
+Private evidence: `flash-20261020-002355.jsonl`, `bonsai-0.4.7-postflash.json`,
+`bonsai-0.4.7-eight-dry-repeat.json`, `bonsai-0.4.7-eight-site-usb.json`,
+`bonsai-0.4.7-eight-site-usb-audio.json`, and `bonsai-0.4.7-tempo-dry.json`.
+
+## Prepared 0.4.7 candidate — October 18, 2026
+
+0.4.7 is built for the next device session and has **not been flashed or physically tested**. Its host audio screens now pass the reproduced 0.4.6 bass, stereo and isolated-attack failures, including 105 tone/stereo cases, seven pulse cases and two sustained-background guards. Ten simulated minutes with eight stems pass without underruns/clips. Nine C sanitizer suites, 59 Python tests and 158 website tests pass. These do not measure the MCU's real-time load or establish listening quality.
+
+The application is 114,328 bytes; RAM is 255,508 / 262,144 bytes. SHA-256: `bc263e96ff5d2aaab4b102355b093dba9402514647ff836e0f3d1992170a7437`. See [the detailed report](docs/sync-validation-047.md) and [the physical checklist](docs/DEVICE_CHECKLIST_047.md). Existing 0.4.6 device results below remain historical; they do not certify this new binary. The public installer remains on the previously published candidate until the new build's physical gates are addressed.
+
+## Unattended follow-up — October 17, 2026
+
+No SP-1 was connected for this follow-up. Maximum-length recording/save/export and native browser audio passed host/synthetic checks, but rendered live-sync audio failed pitch/spectral and pulse-alignment screens. These are software findings, not new device results. See [the complete unattended report](docs/UNATTENDED_VALIDATION_046.md) and its linked reproducible measurements. The existing 0.4.6 binary remains a candidate; the website and GitHub notes expose these findings. Recording publication also has a confirmed final-acknowledgement ambiguity: a failed final flush/readback can leave a visible take. Physical recording and browser gates are not closed by the host results.
+
+## Playlist implementation — October 17, 2026
+
+0.4.6 adds persistent per-deck song membership and BPM ordering. It remains a **hardware-test candidate**, not a verified release. The application-only flash completed on October 17 at 16:05 EDT: 28 pages / 496 chunks and both CRC-valid updater finalizations were acknowledged. Normal runtime subsequently reported `bonsai-8-0.4.6`. All five song slots retained their stem presence and exact lengths; all eight metadata sectors and 51 representative audio-sector hashes matched preflash snapshots. This does not establish full audio readback or application-flash readback. The public installer now offers this exact binary as a candidate; remaining quality and recording gates prevent promotion to a fully verified release.
+
+The actual website `DeviceLibrary.savePlaylists` implementation passed a serial hardware test with temporary A/B memberships and test BPM labels, read back correctly through the firmware library response. Only playlist banks 6/7 were written. After the user powered off and on, the complete playlist response was unchanged and the initial slots were Song 2 on A and Song 4 on B, matching the first BPM-sorted members of their separate playlists. Subsequent browsing and playback results are below. The temporary labels were restored to defaults after testing. Private evidence: `flash-20261017-160526.jsonl`, `bonsai-0.4.6-postflash.json`, `playlist-save-test.json`, and `playlist-restart-verified.json`.
+
+A stable 20.036-second dry test passed with slots 2/4, both decks playing at 1×, all eight gains 256, no mutes and no effects. All 38 status samples retained that workload, with zero new underruns, errors or clips; mean callback time was 1,655.0 μs. USB audio alone then passed 20.023 seconds (one gain varied 255–256); mirroring alone passed 20.026 seconds with 520 replies and all gains 256. The named Bonsai 8 USB input produced non-silent stereo audio. This is capture evidence, not a browser listening result.
+
+USB audio with 30 ms mirror polling produced 86/86 new deck underruns, then 55/56 on a repeat. Both runs also contained brief transport/gain changes, so neither is a controlled full-window comparison; the first run's dropouts began while both decks and all eight gains were still unchanged. A 100 ms mirror interval passed a stable 20.099-second combined window: 179 replies, 20,095 USB packets, all gains 256, and zero new underruns, errors or clips. Mean callback time was 2,020.2 μs. The site now uses 100 ms polling while runtime reports USB capture active and restores 30 ms afterward. A 160 ms display buffer preserves short physical presses/releases received in a batch. Regression tests first failed on the previous polling/timing behavior, then passed after the change; all 158 site tests pass. A test using the actual site poll implementation was inconclusive because Deck A was paused before measurement. Browser listening, physical browsing and recording checks remain pending; do not promote this as an unrestricted verified release.
+
+Private measurement files: `bonsai-0.4.6-eight-dry.json`, `bonsai-0.4.6-eight-usb-only.json`, `bonsai-0.4.6-eight-mirror-only.json`, `bonsai-0.4.6-eight-usb-mirror.json`, `bonsai-0.4.6-eight-usb-mirror-repeat.json`, and `bonsai-0.4.6-eight-usb-mirror-100ms.json`. Earlier incomplete-gain attempts remain recorded separately.
+
+The user confirmed manually pausing/restarting B when the fast-polling runs stuttered; those transport changes were not unexplained firmware input events. After restarting both decks and leaving controls untouched, the **actual updated website `SP1Connection` poll/parser** passed a 20.030-second hardware test through a local serial adapter with the named USB audio capture active: slots 2/4, both playing at 1×, all eight gains 256, no mutes/effects, master 40, zero new underruns/errors/clips, 181 mirror replies, 198 physical frames, and no reported lost events. All 38 status samples passed the release validator; 20,036 USB packets advanced and mean audio callback time was 2,012.8 μs. The capture was non-silent stereo. This verifies the site's actual connection code against the player, but not browser speaker output or subjective listening. Evidence: `bonsai-0.4.6-eight-site-poll-repeat.json`, `bonsai-0.4.6-eight-site-poll-validated.json`, and `bonsai-0.4.6-eight-site-poll-repeat-audio.json`.
+
+Physical B browsing passed: FUNCTION + rocker changed Song 4 to Song 3, then wrapped back to Song 4. Each replacement was observed paused at position zero while A remained on Song 2 and advanced throughout the sampled transition. A levels stayed unchanged and no new underruns or storage/output faults occurred. A subsequently changed from Song 2 to Song 1 while B remained on Song 4 and advanced; that action occurred between sample windows, so A's momentary pause was not captured, and later stem-level changes make it unsuitable as a fixed-gain playback test. A then wrapped Song 1 to Song 2 and stayed paused at position zero; B stayed on Song 4 and advanced. This action also occurred between sampling windows. No new underruns or storage/output faults occurred. Evidence: `playlist-b-first-change.json`, `playlist-b-wrap.json`, and `playlist-a-first-summary.json` and `playlist-a-wrap-summary.json` (reference the before/after samples).
+
+Host checks passed: nine C sanitizer suites, 50 Python tests and 158 website tests. New checks cover real FUNCTION/rocker replay with independent playlists; matching C/JavaScript binary formats and descriptor CRCs; generation wrap and corrupt-bank fallback; unknown-schema rejection; stale-library rejection; exclusive verified saves to sectors 6/7; no writes to audio/index/grid/X3 during playlist saves; deletion and identical slot reuse; and UI editing/recording/disconnect guards. Browser checks confirmed live preview reordering and membership changes, with no horizontal overflow at 390 px. These use simulated storage/control inputs, not hardware playback.
+
+The ARM application is 112,904 bytes; RAM is 254,492 / 262,144 bytes (72 bytes more than 0.4.5). No playlist work runs in the audio callback. Binary SHA-256: `8a421d100e4b91a9b1ceefa051d09e28e94951037cdd6c16d1c37b4dae160a32`. Application-only flash preservation, separate playlist save/restart/browsing, eight-stem dry playback and combined USB/mirroring checks are complete with the sampling limits above. Sustained recording/save/export, live tempo/sync listening quality, actual browser speaker output, browser flashing and longer endurance remain unverified. These limits keep 0.4.6 labeled a candidate. Playlist settings use descriptor fingerprints, not audio hashes; identical-descriptor replacements by another uploader require rechecking labels.
+
+After the final A wraparound check, transfer mode paused both decks and the guarded restore helper confirmed the temporary playlist banks had not been edited. It restored the original blank banks 6/7, flushed and verified them. A second complete metadata and representative audio comparison matched all five song entries, all eight metadata sectors and all 51 audio-sector hashes. Both decks are left paused, with the default full-library membership on A and B; no synthetic BPM labels remain. Evidence: `playlist-restored.json`, `bonsai-0.4.6-postflash.json` (post-restore), and `bonsai-0.4.6-initial-postflash.json` (original post-flash snapshot).
+
+The release validator accepted the pinned binary, flash acknowledgements, preserved library and both raw-sample steady playback reports. Its results are included in the published 0.4.6 candidate manifest; the candidate label is retained because the additional feature/quality gates above remain open. The website and GitHub prerelease carry the same 112,904-byte binary and SHA-256.
+
+## Previous result — October 3, 2026
 
 ## Effect-free 0.4.5 candidate — October 3, 2026
 

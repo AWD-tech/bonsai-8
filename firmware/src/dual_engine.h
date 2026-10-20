@@ -27,6 +27,7 @@ struct dd_deck {
   * Both wrap modulo 2^32; only the renderer advances them between resets. */
  _Atomic uint32_t read, source_clock, speed, playing, mute_mask;
  uint32_t fraction, underruns;
+ uint32_t plan_underruns,source_underruns;
  uint16_t envelope;
  bool starved;
  struct dd_wide_frame last;

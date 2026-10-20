@@ -11281,7 +11281,7 @@ static void usb_audio_start(void)
 	 * per VID/PID/version — without a version bump a PC that saw the old
 	 * (Code-10) audio descriptor keeps judging a re-flashed SP-1 by the
 	 * cached copy and can stay broken even after the fix. */
-	(void)usbd_device_set_bcd_device(usbd, 0x0400);
+	(void)usbd_device_set_bcd_device(usbd, 0x0411);
 
 	if (usbd_enable(usbd) != 0) {
 		printk("usbd enable failed\n");

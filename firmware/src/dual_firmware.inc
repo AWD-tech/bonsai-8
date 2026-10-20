@@ -9,6 +9,7 @@ BUILD_ASSERT(sizeof(struct x3_trk)==16, "uploader track record layout changed");
 #include "dual_mirror.h"
 #include "bonsai_record.h"
 #include "bonsai_library.h"
+#include "bonsai_playlist.h"
 #include "bonsai_sync.h"
 static struct dd_engine dd;
 static struct bonsai_record dd_rec;
@@ -23,6 +24,8 @@ static bool dual_record_busy(void) {
 
 static struct dd_ui_queue dd_ui;
 static uint32_t dd_ui_until;
+/* Storage-thread wall time, including preemption by audio and USB. */
+static uint32_t dd_plan_us,dd_plan_calls,dd_plan_units,dd_plan_max,dd_plan_audio_us;
 static uint16_t dd_physical[4];
 static uint16_t dd_button_mask;
 static char dd_ui_line[2048];
@@ -74,6 +77,8 @@ static _Atomic int dd_request[2], dd_slot[2];
  * the fade/read/load has published dd_slot. Otherwise a second wheel gesture
  * during that interval chooses the same next song again. */
 static _Atomic int dd_browse_slot[2];
+static _Atomic uint32_t dd_playlist_rows[16];
+static int dd_playlist_state; /* -1 unavailable, 0 defaults, 1 saved */
 static _Atomic uint32_t dd_position[2],dd_length[2];
 /* Controls are the sole sync state owner. Storage/USB read atomic copies. */
 static struct bonsai_sync dd_sync;
@@ -235,6 +240,7 @@ static void dual_audio_block(int16_t *out)
 }
 static bool dual_read_index(void)
 {
+ dd_playlist_state=-1;
  atomic_store(&dd_storage_ok,0);
  if(!g_emmc_ready || !emmc_read_blocks(0,dd_io,2)) return false;
  struct meta_blk candidate;
@@ -244,6 +250,19 @@ static bool dual_read_index(void)
  g_x3_ok=0;
  if(emmc_read_blocks(X3_BLK,dd_io,X3_NBLK)) {
   memcpy(&g_x3,dd_io,sizeof(g_x3));g_x3_ok=x3_valid(&g_x3);
+ }
+ /* Only the storage owner reads the catalog, on boot or paused transfer.
+  * No new storage IO or sorting is introduced into the audio callback. */
+ dd_playlist_state=-1;
+ for(unsigned i=0;i<16;i++)atomic_store(&dd_playlist_rows[i],BONSAI_PLAYLIST_DEFAULT);
+ if(g_x3_ok&&emmc_read_blocks(BONSAI_PLAYLIST_BLOCK,dd_io,2)) {
+  int bank=bonsai_playlist_bank(dd_io);struct bonsai_playlist saved;
+  dd_playlist_state=0;
+  if(bank>=0&&bonsai_playlist_decode(dd_io+bank*512,&saved)) {
+   dd_playlist_state=1;
+   for(unsigned i=0;i<16;i++)if(saved.identity[i]==bonsai_playlist_identity((const uint8_t *)&g_meta,(const uint8_t *)&g_x3,i))
+    atomic_store(&dd_playlist_rows[i],saved.row[i]);
+  }
  }
  atomic_store(&dd_storage_ok,1);return true;
 }
@@ -342,7 +361,7 @@ static void dual_status(void)
  uint32_t sof_us=dd_capture_sof_us,sof_calls=dd_capture_sof_calls,sof_max=dd_capture_sof_max;
  irq_unlock(key);
  int n=snprintf(line,sizeof(dd_ui_line),
-  "{\"firmware\":\"bonsai-8-0.4.5\",\"mirror\":1,\"effects\":[],\"pitch_preserving\":1,\"grid_bpm\":[%u,%u],\"grid_valid\":[%u,%u],\"sync\":[%u,%u],\"sync_error\":[%u,%u],\"tap_count\":[%u,%u],\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"audio_us_total\":%u,\"audio_blocks\":%u,\"capture_push_us\":%u,\"capture_push_calls\":%u,\"capture_push_max\":%u,\"capture_sof_us\":%u,\"capture_sof_calls\":%u,\"capture_sof_max\":%u,\"cdc_us\":%u,\"cdc_max\":%u,\"cdc_bytes\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
+  "{\"firmware\":\"bonsai-8-0.4.12\",\"mirror\":1,\"effects\":[],\"pitch_preserving\":1,\"playlists\":1,\"grid_bpm\":[%u,%u],\"grid_valid\":[%u,%u],\"sync\":[%u,%u],\"sync_error\":[%u,%u],\"tap_count\":[%u,%u],\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"plan_underruns\":[%u,%u],\"source_underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"audio_us_total\":%u,\"audio_blocks\":%u,\"plan_us\":%u,\"plan_calls\":%u,\"plan_units\":%u,\"plan_max\":%u,\"plan_audio_us\":%u,\"stretch_active\":[%u,%u],\"capture_push_us\":%u,\"capture_push_calls\":%u,\"capture_push_max\":%u,\"capture_sof_us\":%u,\"capture_sof_calls\":%u,\"capture_sof_max\":%u,\"cdc_us\":%u,\"cdc_max\":%u,\"cdc_bytes\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
   atomic_load(&dd_sync_bpm[0]),atomic_load(&dd_sync_bpm[1]),
   atomic_load(&dd_sync_valid[0]),atomic_load(&dd_sync_valid[1]),
   atomic_load(&dd_sync_state[0]),atomic_load(&dd_sync_state[1]),
@@ -353,8 +372,9 @@ static void dual_status(void)
   atomic_load(&dd_record_state),atomic_load(&dd_record_slot)+1,atomic_load(&dd_rec.source_frames)/2,atomic_load(&dd_record_error),
   0u,0u,0u,0u,0u,0u,0u,0u,0u,atomic_load(&dd_storage_ok),dd_selected,atomic_load(&dd_slot[0])+1,atomic_load(&dd_slot[1])+1,
   atomic_load(&dd.deck[0].playing),atomic_load(&dd.deck[1].playing),
-  dd.deck[0].underruns,dd.deck[1].underruns,dd_read_errors,dd_bad_blocks,atomic_load(&dd_errors),dd.clips,
-  g_audio_us_max,audio_total,audio_blocks,push_us,push_calls,push_max,sof_us,sof_calls,sof_max,g_dual_cdc_us,g_dual_cdc_max,g_dual_cdc_bytes,g_i2s_wfail_cnt,emmc_crc_rd_errs,g_m71_as,g_m71_wu,g_m71_rt,g_m71_fb,g_resetreas,g_last_fault_reason,atomic_load(&dd.master),
+  dd.deck[0].underruns,dd.deck[1].underruns,
+  dd.deck[0].plan_underruns,dd.deck[1].plan_underruns,dd.deck[0].source_underruns,dd.deck[1].source_underruns,dd_read_errors,dd_bad_blocks,atomic_load(&dd_errors),dd.clips,
+  g_audio_us_max,audio_total,audio_blocks,dd_plan_us,dd_plan_calls,dd_plan_units,dd_plan_max,dd_plan_audio_us,(unsigned)atomic_load(&dd.deck[0].stretch.active),(unsigned)atomic_load(&dd.deck[1].stretch.active),push_us,push_calls,push_max,sof_us,sof_calls,sof_max,g_dual_cdc_us,g_dual_cdc_max,g_dual_cdc_bytes,g_i2s_wfail_cnt,emmc_crc_rd_errs,g_m71_as,g_m71_wu,g_m71_rt,g_m71_fb,g_resetreas,g_last_fault_reason,atomic_load(&dd.master),
   dd_tempo_actual(&dd.deck[0]),dd_tempo_actual(&dd.deck[1]),
   atomic_load(&dd.deck[0].mute_mask),atomic_load(&dd.deck[1].mute_mask),
   atomic_load(&dd.deck[0].voice[0].gain),atomic_load(&dd.deck[0].voice[1].gain),
@@ -368,13 +388,13 @@ static void dual_status(void)
 static void dual_library(void)
 {
  size_t used=(size_t)snprintf(dd_ui_line,sizeof(dd_ui_line),
-  "{\"library\":1,\"sample_rate\":48000,\"slots\":[");
+  "{\"library\":1,\"playlists\":1,\"playlist_state\":%d,\"sample_rate\":48000,\"slots\":[",dd_playlist_state);
  unsigned count=0;
  for(unsigned slot=0;slot<NUM_SLOTS;slot++) if(dual_song_present(slot)) {
   const struct slot_state *m=&g_meta.slot[slot];
   int n=snprintf(dd_ui_line+used,sizeof(dd_ui_line)-used,
-   "%s{\"slot\":%u,\"present\":[%u,%u,%u,%u],\"frames\":%u,\"title\":null}",
-   count?",":"",slot+1,!!m->present[0],!!m->present[1],!!m->present[2],!!m->present[3],m->loop_len);
+   "%s{\"slot\":%u,\"present\":[%u,%u,%u,%u],\"frames\":%u,\"title\":null,\"bpm_x100\":%u,\"decks\":%u,\"identity\":%u}",
+   count?",":"",slot+1,!!m->present[0],!!m->present[1],!!m->present[2],!!m->present[3],m->loop_len,atomic_load(&dd_playlist_rows[slot])&65535u,(atomic_load(&dd_playlist_rows[slot])>>16)&3u,bonsai_playlist_identity((const uint8_t *)&g_meta,(const uint8_t *)&g_x3,slot));
   if(n<0||(size_t)n>=sizeof(dd_ui_line)-used-4) return;
   used+=(size_t)n;count++;
  }
@@ -455,6 +475,7 @@ static bool dual_record_publish(void)
   * The inherited format has no journal; sector tears remain a power-loss risk. */
  if(!dual_write_checked(sector,dd_verify+512*sector,1)) return false;
  memcpy(&g_meta,dd_verify,sizeof(g_meta));memcpy(&g_x3,dd_verify+1024,sizeof(g_x3));g_x3_ok=1;
+ atomic_store(&dd_playlist_rows[slot],BONSAI_PLAYLIST_DEFAULT);
  return true;
 }
 static bool dual_record_service(void)
@@ -656,9 +677,11 @@ static void dual_storage_thread(void *a,void *b,void *c)
   if(cache&&dd_io[192]>=6) g_cache_on=emmc_cache_enable();
  }
  dual_read_index();g_meta_loaded=1;
- int first=-1,second=-1;
- for(unsigned s=0;s<NUM_SLOTS;s++) if(dual_song_present(s)) {if(first<0) first=s;else {second=s;break;}}
- dual_request_song(0,first<0?0:first);dual_request_song(1,second<0?1:second);
+ uint32_t rows[16];uint16_t present=0;
+ for(unsigned s=0;s<16;s++){rows[s]=atomic_load(&dd_playlist_rows[s]);if(dual_song_present(s))present|=(uint16_t)(1u<<s);}
+ int first=bonsai_playlist_next(rows,present,0,-1,1);
+ int second=bonsai_playlist_next(rows,present,1,dd_playlist_state==1?-1:first,1);
+ dual_request_song(0,first);dual_request_song(1,second);
  while(1) {
   if(atomic_load(&dd_flush_req)&&!dual_record_busy()) {
    if(g_cache_on) emmc_cache_flush();
@@ -687,7 +710,21 @@ static void dual_storage_thread(void *a,void *b,void *c)
   bool filled=best<8&&dual_fill(best/4,best%4);
   /* Source refill has priority over bounded tempo planning and host replies.
    * Correlation belongs here, never in the real-time audio callback. */
-  bool planned=dd_stretch_service(&dd,1024u)>0;
+  unsigned plan_key=irq_lock();
+  uint32_t plan_audio_start=g_dual_audio_us_total;
+  uint32_t plan_start=DWT->CYCCNT;
+  irq_unlock(plan_key);
+  uint32_t plan_used=dd_stretch_service(&dd,1024u);
+  plan_key=irq_lock();
+  uint32_t plan_elapsed=(DWT->CYCCNT-plan_start)/64u;
+  uint32_t plan_audio_elapsed=g_dual_audio_us_total-plan_audio_start;
+  irq_unlock(plan_key);
+  /* Audio preemption completes before storage resumes. Report its duration
+   * separately; subtraction still includes controls, USB and other IRQ work. */
+  dd_plan_audio_us+=plan_audio_elapsed;
+  dd_plan_us+=plan_elapsed;++dd_plan_calls;dd_plan_units+=plan_used;
+  if(plan_elapsed>dd_plan_max)dd_plan_max=plan_elapsed;
+  bool planned=plan_used>0;
   if(g_usb_up)dual_transfer();
   if(filled||planned)k_yield();else k_msleep(1);
  }
@@ -712,11 +749,13 @@ static void dual_choose_song(int direction)
  if(dual_record_busy()) return;
  int slot=atomic_load(&dd_browse_slot[dd_selected]);
  if(slot<0) slot=atomic_load(&dd_slot[dd_selected]);
- if(slot<0) slot=direction>0?-1:0;
- for(int n=1;n<=(int)NUM_SLOTS;n++) {
-  unsigned next=(unsigned)(slot+direction*n+(int)(2u*NUM_SLOTS))%NUM_SLOTS;
-  if(dual_song_present(next)) {dual_request_song(dd_selected,(int)next);break;}
+ uint32_t rows[16];uint16_t present=0;
+ for(unsigned s=0;s<16;s++) {
+  rows[s]=atomic_load(&dd_playlist_rows[s]);
+  if(dual_song_present(s))present|=(uint16_t)(1u<<s);
  }
+ int next=bonsai_playlist_next(rows,present,dd_selected,slot,direction);
+ if(next>=0&&next!=slot)dual_request_song(dd_selected,next);
 }
 static int dual_track_key(int raw)
 {

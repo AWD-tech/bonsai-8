@@ -16,6 +16,9 @@ cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
 cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -pthread \
  -I "$ROOT/firmware/src" "$ROOT/tests/test_cdc.c" "$ROOT/firmware/src/bonsai_cdc.c" "$ROOT/firmware/src/dual_mirror.c" -o "$TMP_DIR/test-cdc"
 "$TMP_DIR/test-library"
+cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined \
+ -I "$ROOT/firmware/src" "$ROOT/tests/test_playlist.c" "$ROOT/firmware/src/bonsai_playlist.c" -o "$TMP_DIR/test-playlist"
+"$TMP_DIR/test-playlist"
 "$TMP_DIR/test-record"
 "$TMP_DIR/test-capture"
 "$TMP_DIR/test-mirror"
