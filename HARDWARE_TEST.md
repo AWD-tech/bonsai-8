@@ -1,32 +1,50 @@
 # Physical test — 2026-09-30
 
-## Prepared 0.4.10 tempo scheduling candidate — October 20, 2026
+## 0.4.10 hardware tempo failure — October 20, 2026
 
-0.4.9 failed the stable single-changed-deck tempo test recorded below. 0.4.10
-starts private planning during the current overlap and parks completed searches
-without holding the shared worker. Tail writes still wait until their bank is
-safe. Bounded private-stage checks and a flash window table reduce repeated work;
-the audio matching rules are unchanged. Nine C sanitizer suites, 59 Python tests,
-114 host audio screens and 600 simulated seconds pass. These are not MCU timing
-or listening results. The application uses 116,948 flash bytes and 255,564 RAM
-bytes; SHA-256 `85f76ea087b71a9b825a6f06d647c5ec6943d9023a8e1e9f874bae177801fda1`.
-Runtime, preservation, stable tempo and USB/mirroring tests are pending. See
-[the candidate report](docs/sync-validation-0410.md).
+**0.4.10 failed the stable single-changed-deck tempo test.** It starts private
+planning during the current overlap, parks completed searches without holding the
+shared worker and retains safe tail-write timing. Bounded private-stage checks
+and a flash window table reduce repeated work; matching rules are unchanged.
+Nine C sanitizer suites, 59 Python tests, 114 host audio screens and 600 simulated
+seconds pass. Those software results did not establish physical tempo stability.
+The application uses 116,948 flash bytes and 255,564 RAM bytes; SHA-256
+`85f76ea087b71a9b825a6f06d647c5ec6943d9023a8e1e9f874bae177801fda1`.
+See [the candidate report](docs/sync-validation-0410.md).
 
-The application-only 0.4.10 transfer completed at 01:33 EDT: 29 pages, 514 chunks
-and both CRC-valid finalizations. The updater kept its session open and observed
-the expected USB reset about 119 ms after the start command. This is not
-application-flash readback or a runtime/playback pass. Power-on verification is
-pending. Private evidence: `flash-20261020-013302.jsonl`.
+The application-only transfer completed at 01:33 EDT: 29 pages, 514 chunks and
+both CRC-valid finalizations, followed by the expected USB reset about 119 ms
+after the start command. Normal runtime then reported `bonsai-8-0.4.10`. All five
+song entries, eight metadata sectors and 51 representative audio sectors match
+the previous references. This is neither application-flash nor full audio
+readback. Private evidence: `flash-20261020-013302.jsonl` and
+`bonsai-0.4.10-postflash.json`.
+
+A stable **20.018-second** observation held both decks playing, A at 1x and B at
+66846/65536 (~1.02x), all eight gains at 256, no mutes, master 8 and USB capture
+off. No transport, speed, gain, mute or master changes occurred. B accumulated
+**96 new missing-plan underruns**; A added none. Both source-underrun counters and
+all monitored storage/I2S/USB error and clipping deltas remained zero. A advanced
+480,384 native source frames; B advanced only 103,402 (4.31 seconds of source audio).
+Mean callback time was 2,764.87 microseconds. This is a stable physical failure,
+not a changing-controls comparison or an old cumulative-counter reading.
+
+Planner work totaled 5,166,384 charged units in 5,256 calls. Its 5,536,639
+microseconds of elapsed slice time included 2,626,695 microseconds of audio
+preemption. The remaining 2,909,944 microseconds still include controls, USB and
+other interrupts; they are **not exclusive planner CPU time**. Private evidence:
+`bonsai-0.4.10-observed-tempo.json`. Live-tempo stability is unresolved; changed-
+tempo USB/mirroring and listening remain open gates. The default website
+installer stays on 0.4.6, and 0.4.10 must not be promoted as verified.
 
 
-## Prepared 0.4.9 planner candidate — October 20, 2026
+## Previous 0.4.9 planner candidate — October 20, 2026
 
-The next candidate batches scratch-only correlation work to remove redundant per-comparison atomic validation. It preserves scoring, work budgets and validation before shared writes/publication, with no planner RAM increase. New service timing counters include preemption, so they are not exclusive CPU measurements. The first 0.4.9 transfer completed, but the user reported no normal power-on after reconnecting. No normal USB runtime appeared. The device was recovered to the exact previous 0.4.8 binary; runtime, five-song index, eight metadata sectors and 51 representative audio sectors passed afterward. No 0.4.9 physical pass is claimed. See [the planner report](docs/sync-validation-049.md).
+The 0.4.9 candidate batched scratch-only correlation work to remove redundant per-comparison atomic validation. It preserves scoring, work budgets and validation before shared writes/publication, with no planner RAM increase. New service timing counters include preemption, so they are not exclusive CPU measurements. The first 0.4.9 transfer completed, but the user reported no normal power-on after reconnecting. No normal USB runtime appeared. The device was recovered to the exact previous 0.4.8 binary; runtime, five-song index, eight metadata sectors and 51 representative audio sectors passed afterward. No 0.4.9 physical pass is claimed. See [the planner report](docs/sync-validation-049.md).
 
 The 0.4.9 application is 114,888 bytes, SHA-256 `7dfe867e40578d6be632bb92868bf80a2c92058a1c9172121c6b0f4cf8198165`, packaged from `d33c470ed4e29d5b23e410380680db6094fd8afe`. Its 29 pages / 505 chunks and both CRC-valid finalizations completed, but that is not flash readback or proof of startup. Recovery to 0.4.8 completed with 28 pages / 503 chunks. Private evidence: `flash-20261020-005357.jsonl`, `flash-20261020-005604.jsonl`, and `bonsai-0.4.8-recovery-postflash.json`.
 
-A read-only comparison with the [reference updater](https://solderless.engineering/utility/js/firmware.js?v=3) found matching page/chunk/finalization handling, including short last pages. The reference waits for a start response, disconnect or three-second timeout before closing; the local helper closed immediately after the start write/flush. A controlled retry keeps the exact binary and packet sequence, changing only this wait. The controlled retry completed at 01:15 EDT with the same 29 pages / 505 chunks and binary hash. Keeping the session open observed an expected device disconnect about 116 ms after start. The user then confirmed power-on; runtime reports `bonsai-8-0.4.9`, all five song entries match, and all eight metadata / 51 representative audio sectors pass. Private evidence: `flash-20261020-011459.jsonl` and `bonsai-0.4.9-postflash.json`. This single retry does not establish the first failure cause: retransfer and restart were both repeated. The default installer stays unchanged pending playback testing.
+A read-only comparison with the [reference updater](https://solderless.engineering/utility/js/firmware.js?v=3) found matching page/chunk/finalization handling, including short last pages. The reference waits for a start response, disconnect or three-second timeout before closing; the local helper closed immediately after the start write/flush. A controlled retry keeps the exact binary and packet sequence, changing only this wait. The controlled retry completed at 01:15 EDT with the same 29 pages / 505 chunks and binary hash. Keeping the session open observed an expected device disconnect about 116 ms after start. The user then confirmed power-on; runtime reports `bonsai-8-0.4.9`, all five song entries match, and all eight metadata / 51 representative audio sectors pass. Private evidence: `flash-20261020-011459.jsonl` and `bonsai-0.4.9-postflash.json`. This single retry does not establish the first failure cause: retransfer and restart were both repeated. The default installer stayed unchanged; the subsequent playback failure is recorded below.
 
 The user then reported stuttering on tempo changes again. A read-only snapshot
 showed 343 cumulative missing-plan underruns on B, no source underruns or storage
