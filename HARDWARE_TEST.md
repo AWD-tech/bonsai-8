@@ -13,6 +13,13 @@ bytes; SHA-256 `85f76ea087b71a9b825a6f06d647c5ec6943d9023a8e1e9f874bae177801fda1
 Runtime, preservation, stable tempo and USB/mirroring tests are pending. See
 [the candidate report](docs/sync-validation-0410.md).
 
+The application-only 0.4.10 transfer completed at 01:33 EDT: 29 pages, 514 chunks
+and both CRC-valid finalizations. The updater kept its session open and observed
+the expected USB reset about 119 ms after the start command. This is not
+application-flash readback or a runtime/playback pass. Power-on verification is
+pending. Private evidence: `flash-20261020-013302.jsonl`.
+
+
 ## Prepared 0.4.9 planner candidate — October 20, 2026
 
 The next candidate batches scratch-only correlation work to remove redundant per-comparison atomic validation. It preserves scoring, work budgets and validation before shared writes/publication, with no planner RAM increase. New service timing counters include preemption, so they are not exclusive CPU measurements. The first 0.4.9 transfer completed, but the user reported no normal power-on after reconnecting. No normal USB runtime appeared. The device was recovered to the exact previous 0.4.8 binary; runtime, five-song index, eight metadata sectors and 51 representative audio sectors passed afterward. No 0.4.9 physical pass is claimed. See [the planner report](docs/sync-validation-049.md).
