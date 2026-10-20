@@ -1,5 +1,36 @@
 # Physical test — 2026-09-30
 
+## 0.4.12 hardware failures with USB and tempo — October 20, 2026
+
+**0.4.12 was flashed and is not eligible for release.** Its actual-song planner
+optimization reduces unnecessary onset analysis and batches bounded source and
+tail work. The application is 122,012 bytes with 254,756 bytes of RAM, built from
+committed source `4d95761`. SHA-256:
+`3dbad90a5dd48a567aa1aef97c09bdfd95ee67aced460b2c537828e9d96f56e9`.
+Application-only flashing completed at 02:56 EDT. Runtime identity, five song
+entries, eight metadata sectors and 51 representative audio-sector hashes pass;
+this is not a full audio/application readback or a fresh preflash listing.
+
+At unity, eight full stems passed stable twenty-second dry and mirror-only
+windows. USB audio alone failed with 292/303 new source underruns; USB audio with
+100 ms mirroring failed with 287/296. Controls stayed unchanged and all eight
+gains stayed at 256. There were no plan underruns or monitored storage, I2S,
+capture or clipping errors in those unity windows.
+
+At approximately 1.01x on both decks, stable twenty-second windows failed with
+207/207 missing-plan underruns without USB and 156/155 with USB plus mirroring.
+The combined run advanced only 166,382/165,575 native source frames in 20.099
+seconds. Fewer underrun episodes under USB do not mean improved playback;
+source progression was also slower. No source/error/clipping deltas increased.
+USB produced 20,081 packets and 176 mirror replies during the combined window.
+
+The user heard stutter during the unity USB test and reported that it stopped
+when that test ended. Named USB captures were non-silent stereo, but neither
+clean listening nor browser speaker playback is established. All three CI jobs
+passed for this source; hardware failures still block promotion.
+See [the complete candidate report](docs/sync-validation-0412.md). The site
+installer remains unchanged.
+
 ## 0.4.11 hardware tempo failure — October 20, 2026
 
 **0.4.11 failed the stable single-changed-deck tempo test.** This candidate batches
