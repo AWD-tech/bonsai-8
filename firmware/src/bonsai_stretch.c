@@ -8,6 +8,28 @@
 #include <stddef.h>
 #include <string.h>
 enum { CACHE=1,LOOKAHEAD,REFERENCE,TRANSIENT,COARSE,REFINE,TAIL,PUBLISH };
+/* Constant-fold the exact existing float expression once into flash. Every
+ * candidate uses the same overlap window, so no per-comparison conversion or
+ * multiplication is necessary. No RAM or correlation arithmetic changes. */
+#define BS_W(i) ((float)((i)*(BS_OVERLAP-(i)))*(1.f/(BS_OVERLAP*BS_OVERLAP)))
+#define BS_W8(i) BS_W(i),BS_W((i)+1),BS_W((i)+2),BS_W((i)+3),\
+ BS_W((i)+4),BS_W((i)+5),BS_W((i)+6),BS_W((i)+7)
+static const float window[BS_OVERLAP]={
+ BS_W8(0),BS_W8(8),BS_W8(16),BS_W8(24),
+ BS_W8(32),BS_W8(40),BS_W8(48),BS_W8(56),
+ BS_W8(64),BS_W8(72),BS_W8(80),BS_W8(88),
+ BS_W8(96),BS_W8(104),BS_W8(112),BS_W8(120),
+ BS_W8(128),BS_W8(136),BS_W8(144),BS_W8(152),
+ BS_W8(160),BS_W8(168),BS_W8(176),BS_W8(184),
+ BS_W8(192),BS_W8(200),BS_W8(208),BS_W8(216),
+ BS_W8(224),BS_W8(232),BS_W8(240),BS_W8(248),
+ BS_W8(256),BS_W8(264),BS_W8(272),BS_W8(280),
+ BS_W8(288),BS_W8(296),BS_W8(304),BS_W8(312),
+ BS_W8(320),BS_W8(328),BS_W8(336),BS_W8(344),
+ BS_W8(352),BS_W8(360),BS_W8(368),BS_W8(376),
+};
+#undef BS_W8
+#undef BS_W
 static bool published(uint32_t p,uint32_t n,uint32_t oldest,uint32_t written)
 {return p-oldest<0x80000000u&&written-p<0x80000000u&&written-p>=n;}
 void bs_init(struct bs_state *s,uint32_t first,bool enabled)
@@ -35,7 +57,18 @@ static bool begin(struct bs_state *s,struct bs_work *w,uint32_t oldest,uint32_t 
  uint32_t seq=atomic_load_explicit(&s->sequence,memory_order_acquire);
  if(seq&1)return false;
  bool active=atomic_load_explicit(&s->active,memory_order_relaxed);
- if(active&&atomic_load_explicit(&s->cursor,memory_order_acquire)<BS_OVERLAP)return false;
+ if(s->prepared) {
+  if(s->pending.generation!=atomic_load_explicit(&s->generation,memory_order_acquire)||
+     s->prepared_sequence!=seq){s->prepared=false;return false;}
+  if(atomic_load_explicit(&s->cursor,memory_order_acquire)<BS_OVERLAP)return false;
+  uint32_t tail=s->prepared_transient?s->pending.chosen:
+   atomic_load_explicit(&s->chosen,memory_order_relaxed)+BS_HOP;
+  if(!published(tail,BS_OVERLAP,oldest,written))return false;
+  memset(&w->owner,0,sizeof(*w)-offsetof(struct bs_work,owner));
+  w->owner=s;w->plan=s->pending;w->sequence=seq;w->first=w->plan.chosen;
+  w->transient=s->prepared_transient;w->stage=TAIL;
+  return true;
+ }
  struct bs_plan p={.nominal=atomic_load_explicit(&s->next_nominal,memory_order_relaxed),
   .fraction=atomic_load_explicit(&s->next_fraction,memory_order_relaxed),
   .ratio=atomic_load_explicit(&s->requested,memory_order_acquire),
@@ -117,12 +150,21 @@ uint32_t bs_service(struct bs_state *s,struct bs_work *w,bs_read_fn read,void *c
   uint32_t chosen=atomic_load_explicit(&s->chosen,memory_order_relaxed);
   if(w->stage==CACHE) {
    if(budget-used<8)break;
-   if(!published(w->first+w->index,1,oldest,written)){w->owner=NULL;return used?used:1;}
-   struct bs_frame x=mix(read,ctx,w->first+w->index,gain);
-   w->cache[w->index]=x;used+=8;
-   float energy=(float)x.l*x.l+(float)x.r*x.r;
-   w->scan_energy+=energy;if(energy>w->scan_peak)w->scan_peak=energy;
-   if(++w->index==w->count) {
+   uint32_t count=(budget-used)/8u;
+   if(count>w->count-w->index)count=w->count-w->index;
+   uint32_t first=w->first+w->index;
+   if(!published(first,1,oldest,written)){w->owner=NULL;return used?used:1;}
+   if(count>written-first)count=written-first;
+   uint32_t end=w->index+count;
+   /* Cache writes are private. Source publication is fixed for this slice;
+    * validate once per bounded batch, before any eventual shared-tail work. */
+   for(uint32_t i=w->index;i<end;i++) {
+    struct bs_frame x=mix(read,ctx,w->first+i,gain);w->cache[i]=x;
+    float energy=(float)x.l*x.l+(float)x.r*x.r;
+    w->scan_energy+=energy;if(energy>w->scan_peak)w->scan_peak=energy;
+   }
+   w->index=end;used+=count*8u;
+   if(w->index==w->count) {
     if(w->scan_peak>1&&w->scan_energy>=w->scan_peak*256.f) {
      /* Dense material keeps the ordinary cache/input requirement. */
      w->scan_count=w->count;w->stage=REFERENCE;w->index=0;
@@ -142,20 +184,25 @@ uint32_t bs_service(struct bs_state *s,struct bs_work *w,bs_read_fn read,void *c
    ++w->index;used+=8;
   } else if(w->stage==REFERENCE) {
    if(budget-used<8)break;
-   struct bs_frame x=mix(read,ctx,chosen+BS_HOP+w->index,gain);
-   float weight=(float)(w->index*(BS_OVERLAP-w->index))*(1.f/(BS_OVERLAP*BS_OVERLAP));
-   w->reference[w->index][0]=x.l*weight;w->reference[w->index][1]=x.r*weight;
-   w->reference_power[0]+=(float)x.l*x.l*weight;w->reference_power[1]+=(float)x.r*x.r*weight;
-   float energy=(float)x.l*x.l+(float)x.r*x.r;
-   int16_t channel[2]={x.l,x.r};
-   for(unsigned c=0;c<2;c++)if(channel[c]) {
-    int8_t sign=channel[c]>0?1:-1;
-    if(w->sign[c]&&w->sign[c]!=sign&&w->crossings[c]<255)w->crossings[c]++;
-    w->sign[c]=sign;
+   uint32_t count=(budget-used)/8u;
+   if(count>BS_OVERLAP-w->index)count=BS_OVERLAP-w->index;
+   uint32_t end=w->index+count;
+   for(uint32_t i=w->index;i<end;i++) {
+    struct bs_frame x=mix(read,ctx,chosen+BS_HOP+i,gain);
+    float weight=window[i];
+    w->reference[i][0]=x.l*weight;w->reference[i][1]=x.r*weight;
+    w->reference_power[0]+=(float)x.l*x.l*weight;w->reference_power[1]+=(float)x.r*x.r*weight;
+    float energy=(float)x.l*x.l+(float)x.r*x.r;
+    int16_t channel[2]={x.l,x.r};
+    for(unsigned c=0;c<2;c++)if(channel[c]) {
+     int8_t sign=channel[c]>0?1:-1;
+     if(w->sign[c]&&w->sign[c]!=sign&&w->crossings[c]<255)w->crossings[c]++;
+     w->sign[c]=sign;
+    }
+    w->reference_energy+=energy;if(energy>w->reference_peak)w->reference_peak=energy;
    }
-   w->reference_energy+=energy;if(energy>w->reference_peak)w->reference_peak=energy;
-   used+=8;
-   if(++w->index==BS_OVERLAP) {
+   w->index=end;used+=count*8u;
+   if(w->index==BS_OVERLAP) {
     /* Balance phase matching across slow/fast channels. Without this, a
      * fast waveform can dominate the shared grain choice and systematically
      * detune the slower channel. One grain still serves every stem/channel. */
@@ -214,7 +261,7 @@ uint32_t bs_service(struct bs_state *s,struct bs_work *w,bs_read_fn read,void *c
     struct bs_frame x=w->cache[w->offset+i];float l=x.l,r=x.r;
     dot_l+=l*w->reference[i][0];dot_r+=r*w->reference[i][1];
     /* Keep accumulation order and candidate/reference window identical. */
-    float weight=(float)(i*(BS_OVERLAP-i))*(1.f/(BS_OVERLAP*BS_OVERLAP));
+    float weight=window[i];
     energy_l+=l*l*weight;energy_r+=r*r*weight;
    }
    w->dot[0]=dot_l;w->dot[1]=dot_r;w->energy[0]=energy_l;w->energy[1]=energy_r;
@@ -222,15 +269,24 @@ uint32_t bs_service(struct bs_state *s,struct bs_work *w,bs_read_fn read,void *c
    if(w->index>=BS_OVERLAP)next_candidate(w);
   } else if(w->stage==TAIL) {
    if(budget-used<8)break;
-   /* Current overlap ended before begin(). It cannot read this bank again
-    * until the ready descriptor is published after the entire copy. */
+   /* Search uses only private scratch and can finish before the renderer's
+    * old overlap. Park its scalar result so a paused/early deck cannot hold
+    * the only worker while the other deck needs it. The renderer reads
+    * pending only after ready, and reset exclusively clears prepared. */
+   if(atomic_load_explicit(&s->cursor,memory_order_acquire)<BS_OVERLAP) {
+    w->plan.chosen=w->first+w->best;s->pending=w->plan;
+    s->prepared_sequence=w->sequence;s->prepared_transient=w->transient;
+    s->prepared=true;w->owner=NULL;return used?used:1;
+   }
+   /* Cursor publication guarantees the old overlap (including its cached
+    * next native sample) ended. Tail cannot be read again until publication. */
    uint32_t tail=w->transient?w->first+w->best:chosen+BS_HOP;
    for(unsigned k=0;k<4;k++)s->tail[k][w->index]=read(ctx,k,tail+w->index);
    used+=8;if(++w->index==BS_OVERLAP){w->plan.chosen=w->first+w->best;w->stage=PUBLISH;}
   } else {
    uint32_t n=w->plan.fraction+BS_HOP*w->plan.ratio;
    w->plan.next_nominal=w->plan.nominal+(n>>16);w->plan.next_fraction=n&65535;
-   s->pending=w->plan;atomic_store_explicit(&s->ready,true,memory_order_release);
+   s->pending=w->plan;s->prepared=false;atomic_store_explicit(&s->ready,true,memory_order_release);
    w->owner=NULL;return used?used:1;
   }
  }

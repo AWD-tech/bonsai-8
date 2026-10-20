@@ -72,3 +72,9 @@ were back to 1x, so it is not a controlled changed-tempo measurement. A subseque
 50-second observation retained that state with no additional underruns. The
 listening failure still prevents promotion; the next investigation targets the
 planner's delayed admission and use of its shared scratch buffer.
+
+A later stable twenty-second reproduction confirmed 87 new missing-plan
+underruns on A at ~1.02x while B stayed at 1x. All eight gains remained 255–256,
+with no source/storage errors or changed controls. A advanced only 3.9 seconds
+of source audio during the twenty-second test. The next build must pass this
+same physical workload, not only a host scheduling regression.

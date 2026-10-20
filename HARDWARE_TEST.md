@@ -1,5 +1,18 @@
 # Physical test — 2026-09-30
 
+## Prepared 0.4.10 tempo scheduling candidate — October 20, 2026
+
+0.4.9 failed the stable single-changed-deck tempo test recorded below. 0.4.10
+starts private planning during the current overlap and parks completed searches
+without holding the shared worker. Tail writes still wait until their bank is
+safe. Bounded private-stage checks and a flash window table reduce repeated work;
+the audio matching rules are unchanged. Nine C sanitizer suites, 59 Python tests,
+114 host audio screens and 600 simulated seconds pass. These are not MCU timing
+or listening results. The application uses 116,948 flash bytes and 255,564 RAM
+bytes; SHA-256 `85f76ea087b71a9b825a6f06d647c5ec6943d9023a8e1e9f874bae177801fda1`.
+Runtime, preservation, stable tempo and USB/mirroring tests are pending. See
+[the candidate report](docs/sync-validation-0410.md).
+
 ## Prepared 0.4.9 planner candidate — October 20, 2026
 
 The next candidate batches scratch-only correlation work to remove redundant per-comparison atomic validation. It preserves scoring, work budgets and validation before shared writes/publication, with no planner RAM increase. New service timing counters include preemption, so they are not exclusive CPU measurements. The first 0.4.9 transfer completed, but the user reported no normal power-on after reconnecting. No normal USB runtime appeared. The device was recovered to the exact previous 0.4.8 binary; runtime, five-song index, eight metadata sectors and 51 representative audio sectors passed afterward. No 0.4.9 physical pass is claimed. See [the planner report](docs/sync-validation-049.md).
@@ -15,6 +28,19 @@ listening failure with supporting cumulative diagnostics, not a stable tempo
 measurement. A subsequent 50-second unchanged observation added no underruns.
 Private evidence: `bonsai-0.4.9-user-stutter-20261020.json` and
 `bonsai-0.4.9-stutter-repeat-gesture.json`. 0.4.9 remains withheld.
+
+A subsequent **stable 20.032-second** test reproduced the failure with both decks
+playing, A at 66846/65536 (~1.02x), B at 1x, all eight gains 255–256, master 8,
+no effects and no USB capture. There were **87 new plan underruns on A**, zero
+on B, zero source underruns, and zero storage/I2S/USB errors or clipping. No
+transport, speed, mute or master setting changed. A advanced only 93,708 native
+frames while B advanced 480,768, confirming audible holds rather than merely
+an old cumulative counter. Mean callback time was 2,732.7 microseconds. Planner
+work was 4,337,574 charged units in 4,411 calls, with 5,092,967 microseconds elapsed
+including preemption. Evidence: `bonsai-0.4.9-tempo-user-confirmed.json`. Earlier
+admission is a software hypothesis, not yet a hardware fix; total CPU capacity
+must also be checked on the next build.
+
 
 ## 0.4.8 tempo-performance candidate — October 20, 2026
 

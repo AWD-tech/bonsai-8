@@ -24,11 +24,16 @@ struct bs_state {
  _Atomic uint32_t chosen,nominal,fraction,next_nominal,next_fraction;
  _Atomic bool enabled,active,ready;
  bool active_tail;
+ /* Storage-owned completed search; renderer cannot inspect pending until
+  * ready. Parking releases shared scratch while the old overlap finishes. */
+ bool prepared,prepared_transient;
+ uint32_t prepared_sequence;
  struct bs_plan pending;
  uint32_t first;
 };
 /* One worker owns scratch; the audio thread never performs a search or writes
- * tail history. Its current overlap must finish before the worker reuses tail. */
+ * tail history. Search can run during the overlap; tail reuse waits for its
+ * end. Completed searches park per deck without retaining this shared worker. */
 struct bs_work {
  struct bs_frame cache[BS_CACHE];
  float reference[BS_OVERLAP][2];

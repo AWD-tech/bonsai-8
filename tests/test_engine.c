@@ -456,6 +456,77 @@ static void test_stretch_finite_rings_and_coalescing(void)
  service_stretch();assert(engine.stretch_work.owner!=&a->stretch);
  assert(atomic_load(&b->stretch.ready));
 }
+static void test_stretch_shared_worker_deadline(void)
+{
+ /* A deterministic scheduling budget, not a host timing claim: each 2 ms
+  * audio tick gives both decks five 1024-unit planner slices. This is enough
+  * total work for both dense grains, but starting only after the 16 ms
+  * overlap misses the second deck's first 44 ms grain deadline. */
+ dd_init(&engine);atomic_store(&engine.master,128);
+ for(unsigned k=0;k<2;k++) {
+  struct dd_deck *d=&engine.deck[k];dd_reset_deck(d,15);dd_set_stretch(d,true);
+  atomic_store(&d->playing,1);assert(dd_set_tempo(d,66846));
+  for(unsigned s=0;s<4;s++)atomic_store(&d->voice[s].gain,256);
+ }
+ for(unsigned block=0;block<1000;block++) {
+  refill_stretch_rings();
+  for(unsigned slice=0;slice<5;slice++)assert(dd_stretch_service(&engine,1024)<=1024);
+  dd_render(&engine,out,96);
+  for(unsigned k=0;k<2;k++) {
+   assert(!engine.deck[k].source_underruns);
+   assert(!engine.deck[k].plan_underruns);
+  }
+ }
+}
+static void test_stretch_shared_worker_phase_and_pause(void)
+{
+ /* Deck starts need not share a grain boundary. Sweep every 2 ms offset
+  * within the 44 ms hop with exactly the same bounded storage opportunities. */
+ for(unsigned phase=0;phase<22;phase++) {
+  dd_init(&engine);atomic_store(&engine.master,128);
+  for(unsigned k=0;k<2;k++) {
+   struct dd_deck *d=&engine.deck[k];dd_reset_deck(d,15);dd_set_stretch(d,true);
+   assert(dd_set_tempo(d,66846));atomic_store(&d->playing,k==0);
+   for(unsigned s=0;s<4;s++)atomic_store(&d->voice[s].gain,256);
+  }
+  for(unsigned block=0;block<400;block++) {
+   if(block==phase)atomic_store(&engine.deck[1].playing,1);
+   refill_stretch_rings();
+   for(unsigned slice=0;slice<5;slice++)assert(dd_stretch_service(&engine,1024)<=1024);
+   dd_render(&engine,out,96);
+   assert(!engine.deck[0].underruns&&!engine.deck[1].underruns);
+  }
+ }
+ /* Pause the owner midway through its private search and old overlap.
+  * It must finish/park once, release scratch for the live deck, remain idle
+  * while paused, then resume without recopying the old audible tail early. */
+ for(unsigned paused=0;paused<2;paused++) {
+  dd_init(&engine);atomic_store(&engine.master,128);
+  for(unsigned k=0;k<2;k++) {
+   struct dd_deck *d=&engine.deck[k];dd_reset_deck(d,15);dd_set_stretch(d,true);
+   assert(dd_set_tempo(d,66846));atomic_store(&d->playing,1);
+   for(unsigned s=0;s<4;s++)atomic_store(&d->voice[s].gain,256);
+  }
+  refill_stretch_rings();assert(dd_stretch_service(&engine,1024)>0);dd_render(&engine,out,128);
+  struct bs_state *s=&engine.deck[paused].stretch;
+  unsigned attempts=0;
+  do {assert(dd_stretch_service(&engine,1024)>0);assert(++attempts<100);}
+  while(engine.stretch_work.owner!=s);
+  uint32_t cursor=atomic_load(&s->cursor);assert(cursor<BS_OVERLAP);
+  atomic_store(&engine.deck[paused].playing,0);
+  for(unsigned block=0;block<400;block++) {
+   if(block==200) {
+    assert(s->prepared&&!atomic_load(&s->ready)&&engine.stretch_work.owner!=s);
+    assert(atomic_load(&s->cursor)==cursor);
+    atomic_store(&engine.deck[paused].playing,1);
+   }
+   refill_stretch_rings();
+   for(unsigned slice=0;slice<5;slice++)assert(dd_stretch_service(&engine,1024)<=1024);
+   dd_render(&engine,out,96);
+   assert(!engine.deck[0].underruns&&!engine.deck[1].underruns);
+  }
+ }
+}
 static void compare_stretch_render_state(void)
 {
  compare_render_state();
@@ -527,6 +598,6 @@ int main(void)
  test_eight_stems();test_starvation_holds_deck();test_wrap_speed_and_bounds();test_independent_source_clock();
  test_pickup();test_codec();test_saturation();test_interpolation_full_range();test_render_differential();
  test_final_bus_headroom_and_pause();test_master_changes_preserve_transport();
- test_stretch_finite_rings_and_coalescing();test_stretch_render_differential();
+ test_stretch_finite_rings_and_coalescing();test_stretch_shared_worker_deadline();test_stretch_shared_worker_phase_and_pause();test_stretch_render_differential();
  puts("PASS: eight distinct stems, independent decks, mute/gain ramps, starvation sync, ring wrap, speed bounds, pickup, codecs, full-range interpolation, final-bus clipping, master changes and independent source/reclaim clocks");
 }

@@ -121,12 +121,23 @@ struct planning_snapshot {
 static uint64_t hash_sample(uint64_t hash,int16_t sample)
 { return (hash^(uint16_t)sample)*1099511628211ULL; }
 static void snapshot_plan(struct planning_snapshot *out,uint32_t budget,
-                          uint32_t rate,unsigned poison)
+                          uint32_t rate,unsigned poison,bool early)
 {
  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=1000000;
  bs_init(&state,0,true);assert(bs_request(&state,rate));poison_work(poison);prepare(budget);
  assert(bs_activate(&state,NULL,NULL));
  for(unsigned hop=0;hop<SNAPSHOT_HOPS;hop++) {
+  if(early) {
+   struct bs_frame old_tail[BS_STEMS][BS_OVERLAP];memcpy(old_tail,state.tail,sizeof(old_tail));
+   poison_work(poison);unsigned calls=0;
+   while(!state.prepared) {
+    uint32_t used=bs_service(&state,&work,source,NULL,gains,oldest,written,budget);
+    assert(used&&used<=budget&&++calls<100000);
+    assert(!atomic_load(&state.ready)&&!memcmp(old_tail,state.tail,sizeof(old_tail)));
+   }
+   assert(!work.owner&&state.prepared_sequence==atomic_load(&state.sequence));
+   assert(!bs_service(&state,&work,source,NULL,gains,oldest,written,budget));
+  }
   uint64_t hash=1469598103934665603ULL;
   for(unsigned i=0;i<BS_HOP;i++) {
    assert(bs_buffered(&state,oldest,written));
@@ -150,10 +161,10 @@ static void test_poisoned_scratch_and_budget_partition_invariance(void)
  const unsigned poisons[]={0xff,0xa5};
  struct planning_snapshot expected[SNAPSHOT_HOPS],actual[SNAPSHOT_HOPS];
  for(unsigned r=0;r<sizeof(rates)/sizeof(rates[0]);r++) {
-  snapshot_plan(expected,65536,rates[r],0);
+  snapshot_plan(expected,65536,rates[r],0,false);
   for(unsigned b=0;b<sizeof(budgets)/sizeof(budgets[0]);b++)
-   for(unsigned p=0;p<sizeof(poisons)/sizeof(poisons[0]);p++) {
-    snapshot_plan(actual,budgets[b],rates[r],poisons[p]);
+   for(unsigned p=0;p<sizeof(poisons)/sizeof(poisons[0]);p++)for(unsigned early=0;early<2;early++) {
+    snapshot_plan(actual,budgets[b],rates[r],poisons[p],early);
     for(unsigned hop=0;hop<SNAPSHOT_HOPS;hop++) {
      const struct planning_snapshot *a=&actual[hop],*e=&expected[hop];
      assert(a->chosen==e->chosen&&a->nominal==e->nominal&&a->fraction==e->fraction);
@@ -304,6 +315,115 @@ static void test_correlation_batches_preserve_budget_and_cancellation(void)
  for(unsigned stem=0;stem<BS_STEMS;stem++)for(unsigned i=0;i<BS_OVERLAP;i++)
   assert(!state.tail[stem][i].l&&!state.tail[stem][i].r);
 }
+static void test_parked_plan_tail_boundary_and_reset(void)
+{
+ for(unsigned reset_stage=0;reset_stage<3;reset_stage++) {
+  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=1000000;
+  bs_init(&state,0,true);assert(bs_request(&state,66846));prepare(64);
+  assert(bs_activate(&state,NULL,NULL));
+  struct bs_frame saved_tail[BS_STEMS][BS_OVERLAP];
+  memset(state.tail,0xa5,sizeof(state.tail));memcpy(saved_tail,state.tail,sizeof(saved_tail));
+  unsigned calls=0;
+  while(!state.prepared) {
+   assert(bs_service(&state,&work,source,NULL,gains,oldest,written,1024)>0);
+   assert(++calls<100&&!memcmp(saved_tail,state.tail,sizeof(saved_tail)));
+  }
+  assert(!work.owner&&!atomic_load(&state.ready));
+  atomic_store(&state.cursor,BS_OVERLAP-1);reads=0;
+  assert(!bs_service(&state,&work,source,NULL,gains,oldest,written,1024));
+  assert(!reads&&!memcmp(saved_tail,state.tail,sizeof(saved_tail)));
+  if(reset_stage==1) {
+   /* The first safe cursor permits just one four-stem tail copy. Reset
+    * must cancel this partial copy and never publish its old descriptor. */
+   atomic_store(&state.cursor,BS_OVERLAP);
+   assert(bs_service(&state,&work,source,NULL,gains,oldest,written,8)==8);
+   assert(work.owner==&state&&work.index==1&&!atomic_load(&state.ready));
+  } else if(reset_stage==2) {
+   /* Reject a stale sequence even if its generation has not changed. */
+   atomic_fetch_add(&state.sequence,2);
+   assert(!bs_service(&state,&work,source,NULL,gains,oldest,written,1024));
+   assert(!state.prepared&&!work.owner&&!atomic_load(&state.ready));
+  }
+  uint32_t generation=atomic_load(&state.generation);
+  bs_init(&state,4567,true);
+  assert(atomic_load(&state.generation)!=generation&&!state.prepared);
+  if(work.owner)assert(bs_service(&state,&work,source,NULL,gains,oldest,written,1024)==1);
+  assert(!work.owner&&!atomic_load(&state.ready));
+  for(unsigned k=0;k<BS_STEMS;k++)for(unsigned i=0;i<BS_OVERLAP;i++)
+   assert(!state.tail[k][i].l&&!state.tail[k][i].r);
+  prepare(64);assert(state.pending.nominal==4567);
+  assert(state.pending.generation==atomic_load(&state.generation));
+ }
+}
+static void test_parked_transient_retains_selected_source(void)
+{
+ const uint32_t origins[]={10000u,UINT32_MAX-1000u};
+ for(unsigned n=0;n<2;n++) {
+  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));
+  uint32_t nominal=origins[n],chosen=nominal-BS_SEARCH,next=nominal+BS_HOP*5u/4u;
+  event_origin=next-BS_SEARCH;event_first=1;event_end=49;
+  bs_init(&state,nominal-2000u,true);assert(bs_request(&state,81920));
+  atomic_store(&state.active,true);atomic_store(&state.chosen,chosen);
+  atomic_store(&state.nominal,nominal);atomic_store(&state.next_nominal,next);
+  atomic_store(&state.cursor,0);oldest=bs_retain(&state);written=oldest+DD_RING;
+  unsigned calls=0;
+  while(!state.prepared) {
+   uint32_t used=bs_service(&state,&work,boundary_event,NULL,gains,oldest,written,1024);
+   assert(used&&used<=1024&&++calls<100);
+  }
+  assert(state.prepared_transient&&!work.owner&&!atomic_load(&state.ready));
+  uint32_t selected=state.pending.chosen;
+  for(unsigned i=0;i<=BS_OVERLAP;i++) {
+   atomic_store(&state.cursor,i);uint32_t retained=bs_retain(&state);
+   assert(selected-retained<0x80000000u);
+  }
+  /* Release old history before the deferred copy, as the real ring producer
+   * can. The selected transient tail must still be entirely published. */
+  oldest=bs_retain(&state);
+  while(!atomic_load(&state.ready)) {
+   uint32_t used=bs_service(&state,&work,boundary_event,NULL,gains,oldest,written,64);
+   assert(used&&used<=64);
+  }
+  assert(state.pending.chosen==selected&&!state.prepared);
+  for(unsigned k=0;k<BS_STEMS;k++)for(unsigned i=0;i<BS_OVERLAP;i++) {
+   struct bs_frame expected=boundary_event(NULL,k,selected+i);
+   assert(!memcmp(&state.tail[k][i],&expected,sizeof(expected)));
+  }
+ }
+}
+static unsigned reset_read;
+static struct bs_frame reset_during_read(void *context,unsigned stem,uint32_t p)
+{
+ struct bs_frame frame=source(context,stem,p);
+ if(reset_read&&!--reset_read)bs_init(&state,9876,true);
+ return frame;
+}
+static void test_private_source_batches_cancel_before_publication(void)
+{
+ for(unsigned reference=0;reference<2;reference++) {
+  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=1000000;
+  bs_init(&state,0,true);assert(bs_request(&state,66846));prepare(64);
+  assert(bs_activate(&state,NULL,NULL));atomic_store(&state.cursor,BS_OVERLAP);
+  assert(bs_service(&state,&work,source,NULL,gains,oldest,written,8)==8);
+  if(reference) {
+   /* CACHE advances to REFERENCE at its index reset. Tiny calls expose the
+    * real stage boundary without duplicating the private stage numbering. */
+   unsigned calls=0;
+   while(work.index) {assert(bs_service(&state,&work,source,NULL,gains,oldest,written,8)==8);assert(++calls<10000);}
+   assert(!work.reference_power[0]&&!work.reference_power[1]);
+  }
+  uint32_t generation=atomic_load(&state.generation);reset_read=3;
+  uint32_t used=bs_service(&state,&work,reset_during_read,NULL,gains,oldest,written,1024);
+  assert(used&&used<=1024&&atomic_load(&state.generation)!=generation);
+  /* Even an adversarial reset in a read callback can only leave old private
+   * scratch. It must never publish or copy a tail into the new generation. */
+  if(work.owner)assert(bs_cancel_stale(&work));
+  assert(!work.owner&&!state.prepared&&!atomic_load(&state.ready));
+  for(unsigned k=0;k<BS_STEMS;k++)for(unsigned i=0;i<BS_OVERLAP;i++)
+   assert(!state.tail[k][i].l&&!state.tail[k][i].r);
+  prepare(64);assert(state.pending.nominal==9876);
+ }
+}
 static void test_adjacent_pairs_reuse_previous_midpoint(void)
 {
  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=1000000;
@@ -337,5 +457,8 @@ int main(void)
  test_transient_requires_observed_quiet_boundaries();
  test_adjacent_pairs_reuse_previous_midpoint();
  test_correlation_batches_preserve_budget_and_cancellation();
+ test_parked_plan_tail_boundary_and_reset();
+ test_parked_transient_retains_selected_source();
+ test_private_source_batches_cancel_before_publication();
  printf("PASS budgeted stretch: raw per-stem convex oracle, exact1x, stereo, clocks, wrap, bounds, coalescing, reset generation, poisoned scratch and budget partition invariance; state=%zu/work=%zu/two=%zu\n",sizeof(state),sizeof(work),sizeof(state)*2+sizeof(work));
 }
