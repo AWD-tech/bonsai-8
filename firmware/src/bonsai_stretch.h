@@ -57,6 +57,9 @@ uint32_t bs_service(struct bs_state *s,struct bs_work *work,bs_read_fn read,
 /* Renderer only. Returns false until a complete plan is release-published. */
 bool bs_activate(struct bs_state *s,uint32_t *nominal,uint32_t *fraction);
 bool bs_buffered(struct bs_state *s,uint32_t oldest,uint32_t written);
+/* Renderer-owned cached pairs: prepare once, then index every audible stem.
+ * Valid until the next call after cursor advancement or descriptor activation. */
+const struct bs_frame (*bs_samples(struct bs_state *s,bs_read_fn read,void *context))[2];
 struct bs_frame bs_sample(struct bs_state *s,unsigned stem,unsigned which,
                           bs_read_fn read,void *context);
 void bs_advance(struct bs_state *s);

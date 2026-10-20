@@ -8,9 +8,11 @@ Development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). Companio
 
 ## Release status
 
+**Bonsai 8 0.4.8 is the tempo-performance test candidate.** It reduces repeated interpolation, source reads and synchronization in the real-time renderer, while keeping the unchanged deck on its efficient dry path. Exact-output regressions and audio-quality screens pass on the host; this does not yet establish device timing or listening quality. New diagnostics distinguish waiting for a tempo plan from waiting for source audio. See [the candidate report](docs/sync-validation-048.md). The default website installer is unchanged until physical checks pass.
+
 **Bonsai 8 0.4.7 is prepared for device testing.** It fixes the reproduced bass-pitch drift, stereo imbalance and repeated isolated attacks found in 0.4.6. The expanded host audio screens and ten-minute simulated eight-stem test pass. It was flashed on October 20: runtime, five-song preservation and twenty-second eight-stem dry/USB tests passed. A subsequent 1.02× tempo change produced audible stuttering and new underruns, so it is still held from the default installer. Read the [measurements and build details](docs/sync-validation-047.md) and [device checklist](docs/DEVICE_CHECKLIST_047.md). Physical listening, USB/mirroring load and recording remain release gates.
 
-**Bonsai 8 0.4.6 is installed and available as a test candidate from the [website installer](https://sp-1.xyz/).** It adds separate saved A/B playlists, ordered by source BPM, for physical FUNCTION + rocker browsing. Configure membership and BPM under **On your player → Deck playlists · BPM order**. Loading a song cues only the selected deck; the other continues. Tap PLAY to start the new song. See [playlist details](docs/PLAYLISTS.md).
+**Bonsai 8 0.4.6 is available as a test candidate from the [website installer](https://sp-1.xyz/).** It adds separate saved A/B playlists, ordered by source BPM, for physical FUNCTION + rocker browsing. Configure membership and BPM under **On your player → Deck playlists · BPM order**. Loading a song cues only the selected deck; the other continues. Tap PLAY to start the new song. See [playlist details](docs/PLAYLISTS.md).
 
 Physical checks passed for playlist saving, restart persistence, browsing and wraparound on both decks. B transitions were continuously sampled; A changes were verified before/after. Temporary test labels were removed afterward. All five original song entries, all eight metadata sectors and 51 representative audio-sector hashes match the preflash snapshots.
 

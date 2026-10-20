@@ -262,10 +262,10 @@ bool bs_buffered(struct bs_state *s,uint32_t oldest,uint32_t written)
  uint32_t i=atomic_load_explicit(&s->cursor,memory_order_relaxed);
  return i<BS_HOP&&needed_sample(s,i,oldest,written)&&needed_sample(s,i+1,oldest,written);
 }
-static struct bs_frame raw_sample(struct bs_state *s,unsigned stem,uint32_t i,bs_read_fn read,void *ctx)
+static struct bs_frame raw_sample(struct bs_state *s,unsigned stem,uint32_t chosen,uint32_t i,bs_read_fn read,void *ctx)
 {
  if(i==BS_HOP)return s->tail[stem][0];
- struct bs_frame x=read(ctx,stem,atomic_load_explicit(&s->chosen,memory_order_relaxed)+i);
+ struct bs_frame x=read(ctx,stem,chosen+i);
  if(s->active_tail&&i<BS_OVERLAP) {
   struct bs_frame old=s->tail[stem][i];
   x.l=((int32_t)old.l*(int32_t)(BS_OVERLAP-i)+(int32_t)x.l*(int32_t)i)/(int32_t)BS_OVERLAP;
@@ -273,20 +273,32 @@ static struct bs_frame raw_sample(struct bs_state *s,unsigned stem,uint32_t i,bs
  }
  return x;
 }
-struct bs_frame bs_sample(struct bs_state *s,unsigned stem,unsigned which,bs_read_fn read,void *ctx)
+const struct bs_frame (*bs_samples(struct bs_state *s,bs_read_fn read,void *ctx))[2]
 {
  uint32_t i=atomic_load_explicit(&s->cursor,memory_order_relaxed);
  uint32_t seq=atomic_load_explicit(&s->sequence,memory_order_relaxed);
  if(!s->cached_valid||s->cached_cursor!=i||s->cached_sequence!=seq) {
+  bool adjacent=s->cached_valid&&s->cached_cursor+1==i&&s->cached_sequence==seq;
+  uint32_t chosen=atomic_load_explicit(&s->chosen,memory_order_relaxed);
   for(unsigned k=0;k<4;k++) {
-   s->cached[k][0]=raw_sample(s,k,i,read,ctx);s->cached[k][1]=raw_sample(s,k,i+1,read,ctx);
+   /* The next native frame was already read for the preceding midpoint.
+    * Descriptor activation invalidates the cache before tail reuse. */
+   s->cached[k][0]=adjacent?s->cached[k][1]:raw_sample(s,k,chosen,i,read,ctx);
+   s->cached[k][1]=raw_sample(s,k,chosen,i+1,read,ctx);
   }
   s->cached_cursor=i;s->cached_sequence=seq;s->cached_valid=true;
  }
- return s->cached[stem][which];
+ return s->cached;
 }
+struct bs_frame bs_sample(struct bs_state *s,unsigned stem,unsigned which,bs_read_fn read,void *ctx)
+{return bs_samples(s,read,ctx)[stem][which];}
 void bs_advance(struct bs_state *s)
-{atomic_fetch_add_explicit(&s->cursor,1,memory_order_release);}
+{
+ /* The renderer is the sole cursor writer between exclusive mode resets.
+  * Publish progress to the planner without an unnecessary exclusive RMW. */
+ uint32_t i=atomic_load_explicit(&s->cursor,memory_order_relaxed);
+ atomic_store_explicit(&s->cursor,i+1,memory_order_release);
+}
 uint32_t bs_retain(const struct bs_state *s)
 {
  if(!atomic_load_explicit(&s->active,memory_order_acquire))return s->first;

@@ -149,39 +149,40 @@ static struct dd_wide_frame steady_sample(const struct steady_voice *v,unsigned 
  }
  return (struct dd_wide_frame){l/1024,r/1024};
 }
-static bool render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
-                          uint32_t pos[2],const uint32_t available[2],
-                          const uint32_t step[2],const bool play[2],
-                          const bool any[2],const uint16_t gain[2][4],uint32_t master)
+static bool prepare_steady(const struct dd_deck *d,uint32_t count,uint32_t available,
+                           uint32_t step,bool play,bool any,const uint16_t gain[4],
+                           struct steady_voice voice[4],unsigned *voices)
 {
- /* Most blocks have unchanged controls and ample buffered audio. Validate
-  * that once, rather than rechecking ramps, presence and starvation for each
-  * of eight voices at every output frame. Edge/ramp/starved blocks still run
-  * the sample-at-a-time path below. The count bound keeps phase arithmetic
-  * within 32 bits; callers may render larger blocks through the general path. */
- if(!count||count>DD_RING) return false;
- struct steady_voice voice[2][4];unsigned voices[2]={0,0};
- uint32_t fraction[2];bool running[2];
- for(unsigned k=0;k<2;k++) {
-  struct dd_deck *d=&e->deck[k];
-  if(stretching(d))return false;
-  running[k]=play[k]&&any[k];
-  if(d->starved||d->envelope!=(running[k]?256:0)) return false;
-  fraction[k]=d->fraction;
-  uint32_t needed=2+((fraction[k]+(count-1)*step[k])>>16);
-  if(running[k]&&available[k]<needed) return false;
-  for(unsigned s=0;s<4;s++) {
-   struct dd_voice *v=&d->voice[s];
-   if(!running[k]||!v->present) continue;
-   if(v->current_gain!=gain[k][s]) return false;
-   if(gain[k][s]) voice[k][voices[k]++]=(struct steady_voice){v->ring,gain[k][s]};
-  }
+ /* Validate each deck independently. Tempo changes on the other deck must
+  * not turn this deck's settled controls into eight per-sample checks. */
+ if(!count||count>DD_RING||stretching(d))return false;
+ bool running=play&&any;
+ if(d->starved||d->envelope!=(running?256:0))return false;
+ uint32_t needed=2+((d->fraction+(count-1)*step)>>16);
+ if(running&&available<needed)return false;
+ *voices=0;
+ for(unsigned s=0;s<4;s++) {
+  const struct dd_voice *v=&d->voice[s];
+  if(!running||!v->present)continue;
+  if(v->current_gain!=gain[s])return false;
+  if(gain[s])voice[(*voices)++]=(struct steady_voice){v->ring,gain[s]};
  }
+ return true;
+}
+static void render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
+                          uint32_t pos[2],const uint32_t step[2],
+                          const bool play[2],const bool any[2],
+                          const struct steady_voice voice[2][4],const unsigned voices[2],uint32_t master)
+{
+ /* Keep the fully dry block's original local accumulator loop. Mixing a
+  * stretched deck uses the same prepared dry voices in the fallback below. */
+ bool running[2]={play[0]&&any[0],play[1]&&any[1]};
+ uint32_t fraction[2]={e->deck[0].fraction,e->deck[1].fraction};
  struct dd_wide_frame last[2]={e->deck[0].last,e->deck[1].last};
  for(uint32_t f=0;f<count;f++) {
   int32_t l=0,r=0;
   for(unsigned k=0;k<2;k++) {
-   if(!running[k]) continue;
+   if(!running[k])continue;
    last[k]=steady_sample(voice[k],voices[k],pos[k],fraction[k]);
    l+=last[k].l;r+=last[k].r;
    fraction[k]+=step[k];pos[k]+=fraction[k]>>16;fraction[k]&=65535;
@@ -192,17 +193,18 @@ static bool render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
  for(unsigned k=0;k<2;k++) {
   e->deck[k].fraction=fraction[k];e->deck[k].last=last[k];
  }
- return true;
 }
 void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
 {
- uint32_t pos[2],before[2],available[2],step[2],clock[2],written[2];
+ uint32_t pos[2],before[2],available[2],step[2],clock[2],written[2],tempo[2];
  bool play[2],any[2]={false,false},stretch[2];
+ struct steady_voice steady_voice[2][4];unsigned voices[2]={0,0};bool steady[2];
  uint16_t gain[2][4]; uint32_t master=bound(atomic_load(&e->master),0,256);
  for(unsigned k=0;k<2;k++) {
   struct dd_deck *d=&e->deck[k];
   pos[k]=atomic_load_explicit(&d->read,memory_order_relaxed); before[k]=pos[k]; available[k]=DD_RING;
   clock[k]=atomic_load_explicit(&d->source_clock,memory_order_relaxed);stretch[k]=stretching(d);
+  tempo[k]=stretch[k]?bs_actual(&d->stretch):65536u;
   step[k]=bound(atomic_load(&d->speed),32768,81920)/2;
   play[k]=atomic_load(&d->playing)!=0; uint32_t mute=atomic_load(&d->mute_mask);
   for(unsigned s=0;s<4;s++) {
@@ -215,18 +217,32 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
    if(n<available[k]) available[k]=n;
   }
   written[k]=pos[k]+available[k];
+  steady[k]=prepare_steady(d,count,available[k],step[k],play[k],any[k],gain[k],steady_voice[k],&voices[k]);
  }
- if(render_steady(e,out,count,pos,available,step,play,any,gain,master)) goto publish;
+ if(steady[0]&&steady[1]) {
+  render_steady(e,out,count,pos,step,play,any,steady_voice,voices,master);
+  goto publish;
+ }
  for(uint32_t f=0;f<count;f++) {
   int32_t ml=0,mr=0;
   for(unsigned k=0;k<2;k++) {
    struct dd_deck *d=&e->deck[k];
+   if(steady[k]) {
+    if(play[k]&&any[k]) {
+     d->last=steady_sample(steady_voice[k],voices[k],pos[k],d->fraction);
+     ml+=d->last.l;mr+=d->last.r;
+     d->fraction+=step[k];pos[k]+=d->fraction>>16;d->fraction&=65535;
+    }
+    continue;
+   }
    bool buffered;
    if(stretch[k]) {
     uint32_t nominal=clock[k],fraction=d->source_fraction/2;
     bool boundary=atomic_load_explicit(&d->stretch.cursor,memory_order_relaxed)==BS_HOP;
     bool ready=(!play[k]||!any[k])?false:bs_activate(&d->stretch,&nominal,&fraction);
     if(ready&&boundary) {
+     /* Only this renderer changes actual tempo when it activates a plan. */
+     tempo[k]=bs_actual(&d->stretch);
      clock[k]=nominal;d->source_fraction=fraction*2;
      /* A first descriptor starts on a whole native frame. A dry callback
       * may have stopped at its midpoint; do not shorten the first grain by
@@ -236,7 +252,16 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
     buffered=ready&&bs_buffered(&d->stretch,pos[k],written[k]);
    } else buffered=available[k]>=(d->starved?512u:2u);
    if(play[k]&&any[k]&&!buffered) {
-    if(!d->starved) {++d->underruns;d->starved=true;}
+    if(!d->starved) {
+     ++d->underruns;d->starved=true;
+     /* Classify the first blocked frame, not every frame of one dropout.
+      * A missing plan may itself follow slow IO; this reports the immediate
+      * renderer wait without claiming why the planner failed to finish. */
+     bool missing_plan=stretch[k]&&atomic_load_explicit(&d->stretch.cursor,memory_order_relaxed)>=BS_HOP-1u&&
+      (!atomic_load_explicit(&d->stretch.ready,memory_order_acquire)||
+       d->stretch.pending.generation!=atomic_load_explicit(&d->stretch.generation,memory_order_relaxed));
+     if(missing_plan)++d->plan_underruns;else ++d->source_underruns;
+    }
    } else if(buffered) d->starved=false;
    bool running=play[k]&&any[k]&&buffered;
    if(running&&d->envelope<256) ++d->envelope;
@@ -244,6 +269,9 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
    int32_t dl=d->last.l,dr=d->last.r;
    if(running) {
     dl=dr=0;
+    /* One cache lookup replaces two function calls per audible stem. The
+     * returned pairs are shared by both 48 kHz phases of each native frame. */
+    const struct bs_frame (*samples)[2]=stretch[k]?bs_samples(&d->stretch,stretch_source,d):NULL;
     for(unsigned s=0;s<4;s++) {
      struct dd_voice *v=&d->voice[s];
      if(!v->present) continue;
@@ -254,12 +282,15 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
      if(!v->current_gain) continue;
      struct dd_frame a,b;
      if(stretch[k]) {
-      struct bs_frame x=bs_sample(&d->stretch,s,0,stretch_source,d),
-       y=bs_sample(&d->stretch,s,1,stretch_source,d);
+      struct bs_frame x=samples[s][0],y=samples[s][1];
       a=(struct dd_frame){x.l,x.r};b=(struct dd_frame){y.l,y.r};
      } else {a=v->ring[pos[k]&(DD_RING-1)];b=v->ring[(pos[k]+1)&(DD_RING-1)];}
-     int32_t l=interpolate(a.l,b.l,d->fraction);
-     int32_t r=interpolate(a.r,b.r,d->fraction);
+     int32_t l=a.l,r=a.r;
+     if(d->fraction==32768u) {
+      l+=((int32_t)b.l-a.l)/2;r+=((int32_t)b.r-a.r)/2;
+     } else if(d->fraction) {
+      l=interpolate(a.l,b.l,d->fraction);r=interpolate(a.r,b.r,d->fraction);
+     }
      dl+=l*v->current_gain; dr+=r*v->current_gain;
     }
     /* 12dB fixed headroom, then saturate the final two-deck bus. */
@@ -268,7 +299,7 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
     uint32_t advance=d->fraction>>16;d->fraction&=65535;
     if(stretch[k]) {
      if(advance)bs_advance(&d->stretch);
-     d->source_fraction+=bs_actual(&d->stretch);clock[k]+=d->source_fraction>>17;d->source_fraction&=131071;
+     d->source_fraction+=tempo[k];clock[k]+=d->source_fraction>>17;d->source_fraction&=131071;
      uint32_t retain=bs_retain(&d->stretch);
      if((int32_t)(retain-clock[k])>0)retain=clock[k];
      if((int32_t)(retain-pos[k])>0)pos[k]=retain;

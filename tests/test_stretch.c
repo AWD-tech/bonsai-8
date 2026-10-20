@@ -267,6 +267,26 @@ static void test_transient_requires_observed_quiet_boundaries(void)
   }
  }
 }
+static void test_adjacent_pairs_reuse_previous_midpoint(void)
+{
+ memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=1000000;
+ bs_init(&state,0,true);assert(bs_request(&state,66846));prepare(64);
+ for(unsigned grain=0;grain<3;grain++) {
+  assert(bs_activate(&state,NULL,NULL));
+  for(unsigned cursor=0;cursor<BS_HOP;cursor++) {
+   unsigned before=reads;
+   for(unsigned phase=0;phase<2;phase++)for(unsigned stem=0;stem<4;stem++)for(unsigned which=0;which<2;which++)
+    (void)bs_sample(&state,stem,which,source,NULL);
+   /* Both 48k phases share each pair. The preceding midpoint already read
+    * the next pair's first sample; only four new source frames are needed.
+    * At the final midpoint the ready tail replaces source reads entirely. */
+   unsigned needed=cursor==0?8:cursor==BS_HOP-1?0:4;
+   assert(reads-before==needed);
+   bs_advance(&state);
+   if(cursor==BS_OVERLAP)prepare(64);
+  }
+ }
+}
 int main(void)
 {
  const uint32_t rates[]={32768,49152,65536,73728,81920,50001};
@@ -278,5 +298,6 @@ int main(void)
  test_slow_extreme_grain_fits_p16m_refill_boundary();
  test_fast_extreme_grain_falls_back_without_full_lookahead();
  test_transient_requires_observed_quiet_boundaries();
+ test_adjacent_pairs_reuse_previous_midpoint();
  printf("PASS budgeted stretch: raw per-stem convex oracle, exact1x, stereo, clocks, wrap, bounds, coalescing, reset generation, poisoned scratch and budget partition invariance; state=%zu/work=%zu/two=%zu\n",sizeof(state),sizeof(work),sizeof(state)*2+sizeof(work));
 }

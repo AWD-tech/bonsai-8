@@ -1,5 +1,9 @@
 # Physical test — 2026-09-30
 
+## 0.4.8 tempo-performance candidate — October 20, 2026
+
+The 0.4.7 device failure below motivated a renderer optimization, not a relaxed audio-quality threshold. Unchanged dry decks retain their efficient path while the other deck stretches; source pairs are reused across native-frame midpoints, and renderer-owned state avoids unnecessary atomic read-modify-write operations. New `plan_underruns` and `source_underruns` counters classify the immediate blocked renderer state, not the ultimate cause. Host exact-output and quality regressions pass. This candidate has not yet been flashed or tested on the player; do not promote it based on host timing. Storage layout, recording controls and updater write bounds are unchanged. See [the detailed candidate report](docs/sync-validation-048.md).
+
 ## 0.4.7 device session — October 20, 2026
 
 The pinned 114,328-byte application (SHA-256
