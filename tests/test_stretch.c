@@ -432,6 +432,77 @@ static void test_parked_plan_tail_boundary_and_reset(void)
   assert(state.pending.generation==atomic_load(&state.generation));
  }
 }
+static void test_tail_batch_budget_and_exclusive_reset(void)
+{
+ const uint32_t budgets[]={1,7,8,9,15,16,31,63,127,511,1023,1024};
+ const uint32_t origins[]={0,UINT32_MAX-1000};
+ for(unsigned origin=0;origin<2;origin++) {
+  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=origins[origin];written=oldest+1000000;
+  bs_init(&state,oldest,true);assert(bs_request(&state,66846));prepare(64);
+  assert(bs_activate(&state,NULL,NULL));
+  while(!state.prepared)assert(bs_service(&state,&work,source,NULL,gains,oldest,written,1024));
+  atomic_store(&state.cursor,BS_OVERLAP);
+  assert(!bs_service(&state,&work,source,NULL,gains,oldest,written,1));
+  assert(work.owner&&work.index==0&&!atomic_load(&state.ready));
+  for(unsigned prefix=0;prefix<3;prefix++) {
+   if(prefix) {
+    unsigned target=prefix==1?127:383;
+    while(work.index<target)assert(bs_service(&state,&work,source,NULL,gains,oldest,written,8)==8);
+   }
+   struct bs_state initial_state=state,batched_state;
+   struct bs_work initial_work=work,batched_work;
+   for(unsigned b=0;b<sizeof(budgets)/sizeof(*budgets);b++) {
+    state=initial_state;work=initial_work;
+    uint32_t n=budgets[b],remaining=(BS_OVERLAP-work.index)*8;
+    if(n>remaining)n=remaining;
+    uint32_t used=bs_service(&state,&work,source,NULL,gains,oldest,written,n);
+    assert(used==n/8*8&&!atomic_load(&state.ready));
+    batched_state=state;batched_work=work;
+    state=initial_state;work=initial_work;
+    for(unsigned step=0;step<used/8;step++)assert(bs_service(&state,&work,source,NULL,gains,oldest,written,8)==8);
+    assert(!memcmp(&state,&batched_state,sizeof(state)));
+    assert(!memcmp(&work,&batched_work,sizeof(work)));
+   }
+   state=initial_state;work=initial_work;
+  }
+  /* Reset exclusively between slices, including an almost complete tail.
+   * A stale continuation must never write into the fresh generation. */
+  bs_init(&state,12345,true);
+  assert(bs_service(&state,&work,source,NULL,gains,oldest,written,1024)==1);
+  assert(!work.owner&&!atomic_load(&state.ready));
+  for(unsigned k=0;k<BS_STEMS;k++)for(unsigned i=0;i<BS_OVERLAP;i++)
+   assert(!state.tail[k][i].l&&!state.tail[k][i].r);
+ }
+}
+static struct bs_frame source_with_audio_progress(void *context,unsigned stem,uint32_t p)
+{
+ struct bs_frame x=source(context,stem,p);
+ assert(!atomic_load(&state.ready));
+ if(atomic_load(&state.cursor)<BS_HOP-1)bs_advance(&state);
+ if(atomic_load(&state.cursor)==BS_HOP-1)assert(!bs_buffered(&state,oldest,written));
+ return x;
+}
+static void test_tail_batch_allows_audio_progress_but_not_activation(void)
+{
+ memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=1000000;
+ bs_init(&state,0,true);assert(bs_request(&state,66846));prepare(64);
+ assert(bs_activate(&state,NULL,NULL));
+ while(!state.prepared)assert(bs_service(&state,&work,source,NULL,gains,oldest,written,1024));
+ atomic_store(&state.cursor,BS_OVERLAP);
+ uint32_t chosen=atomic_load(&state.chosen),sequence=atomic_load(&state.sequence);
+ for(unsigned batch=0;batch<3;batch++) {
+  assert(bs_service(&state,&work,source_with_audio_progress,NULL,gains,oldest,written,1024)==1024);
+  assert(atomic_load(&state.chosen)==chosen&&atomic_load(&state.sequence)==sequence);
+  assert(!atomic_load(&state.ready));
+ }
+ assert(work.index==BS_OVERLAP&&atomic_load(&state.cursor)==BS_HOP-1);
+ assert(bs_service(&state,&work,source,NULL,gains,oldest,written,1)==1);
+ assert(atomic_load(&state.ready)&&bs_buffered(&state,oldest,written));
+ for(unsigned k=0;k<BS_STEMS;k++)for(unsigned i=0;i<BS_OVERLAP;i++) {
+  struct bs_frame expected=source(NULL,k,chosen+BS_HOP+i);
+  assert(!memcmp(&state.tail[k][i],&expected,sizeof(expected)));
+ }
+}
 static void test_parked_transient_retains_selected_source(void)
 {
  const uint32_t origins[]={10000u,UINT32_MAX-1000u};
@@ -466,6 +537,51 @@ static void test_parked_transient_retains_selected_source(void)
    struct bs_frame expected=boundary_event(NULL,k,selected+i);
    assert(!memcmp(&state.tail[k][i],&expected,sizeof(expected)));
   }
+ }
+}
+static unsigned onset_case;
+static struct bs_frame impossible_onset_source(void *context,unsigned stem,uint32_t p)
+{
+ (void)source(context,stem,p);
+ uint32_t i=p-event_origin;
+ int16_t x=0;
+ if(onset_case<2) {
+  if(!i)x=onset_case?400:1000;
+  if(i>=1800&&i<1848)x=30000;
+ } else if(onset_case==2) {
+  if(i>=50&&i<400)x=i==50?30000:7000;
+ } else if(onset_case==3) {
+  if(i>=50&&i<400)x=i==50?30000:1000;
+ } else if(i==50||i==84)x=30000;
+ return (struct bs_frame){x,0};
+}
+static void test_impossible_transients_skip_unnecessary_source_reads(void)
+{
+ const uint16_t full[4]={256,256,256,256};
+ for(onset_case=0;onset_case<5;onset_case++) {
+  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=1000000;
+  bs_init(&state,10000,true);assert(bs_request(&state,66846));
+  assert(bs_service(&state,&work,impossible_onset_source,NULL,full,oldest,written,8)==1);
+  assert(bs_activate(&state,NULL,NULL));atomic_store(&state.cursor,BS_OVERLAP);
+  event_origin=atomic_load(&state.next_nominal)-BS_SEARCH;reads=0;
+  unsigned turns=0;
+  while(!atomic_load(&state.ready)) {
+   uint32_t used=bs_service(&state,&work,impossible_onset_source,NULL,full,oldest,written,1024);
+   assert(used&&used<=1024);assert(++turns<100);
+  }
+  /* Every pattern must choose the unchanged ordinary-search result. First
+   * boundary1000 cannot be quiet even against the largest int16 peak, so it
+   * avoids LOOKAHEAD too. Boundary400 needs the actual future peak before
+   * rejection. Remaining patterns prove each monotone early failure. */
+  assert(!work.transient&&state.pending.chosen==state.pending.nominal);
+  uint32_t cached=BS_OVERLAP+2*BS_SEARCH;
+  uint32_t scan=BS_SEARCH+BS_HOP+BS_OVERLAP;
+  uint32_t expected=(cached+2*BS_OVERLAP)*BS_STEMS;
+  if(onset_case)expected+=(scan-cached)*BS_STEMS;
+  assert(reads==expected); /* The old full scan needlessly reread lookahead. */
+  if(onset_case==2)assert(work.onset_count==257);
+  if(onset_case==3)assert(work.nonquiet_count==289&&work.onset_count==1);
+  if(onset_case==4)assert(work.onset_count==2&&work.onset_last-work.onset+1-work.onset_count==33);
  }
 }
 static unsigned reset_read;
@@ -536,7 +652,10 @@ int main(void)
  test_correlation_batches_preserve_budget_and_cancellation();
  test_packed_reference_and_rolling_energy();
  test_parked_plan_tail_boundary_and_reset();
+ test_tail_batch_budget_and_exclusive_reset();
+ test_tail_batch_allows_audio_progress_but_not_activation();
  test_parked_transient_retains_selected_source();
  test_private_source_batches_cancel_before_publication();
+ test_impossible_transients_skip_unnecessary_source_reads();
  printf("PASS budgeted stretch: raw per-stem convex oracle, exact1x, stereo, clocks, wrap, bounds, coalescing, reset generation, poisoned scratch and budget partition invariance; state=%zu/work=%zu/two=%zu\n",sizeof(state),sizeof(work),sizeof(state)*2+sizeof(work));
 }

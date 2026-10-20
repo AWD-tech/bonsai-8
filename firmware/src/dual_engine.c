@@ -50,6 +50,44 @@ static struct bs_frame stretch_source(void *context,unsigned stem,uint32_t p)
  if(!d->voice[stem].present)return (struct bs_frame){0,0};
  struct dd_frame x=d->voice[stem].ring[p&(DD_RING-1)];return (struct bs_frame){x.l,x.r};
 }
+/* Resolve present/gain state once per private analysis batch, then read the
+ * bounded ring span directly instead of four indirect calls per frame. */
+static void stretch_mix_batch(void *context,uint32_t source,uint32_t count,
+                              const uint16_t gain[4],struct bs_frame *out)
+{
+ const struct dd_deck *d=context;
+ const struct dd_frame *ring[4];uint16_t level[4];unsigned voices=0;
+ for(unsigned k=0;k<4;k++)if(d->voice[k].present&&gain[k]) {
+  ring[voices]=d->voice[k].ring;level[voices++]=gain[k];
+ }
+ if(voices==4) {
+  const struct dd_frame *a=ring[0],*b=ring[1],*c=ring[2],*fourth=ring[3];
+  int32_t ga=level[0],gb=level[1],gc=level[2],gd=level[3];
+  /* (sum * 256) / 1024 == sum / 4, including C's rounding toward zero. */
+  if(ga==256&&gb==256&&gc==256&&gd==256) {
+   for(uint32_t i=0;i<count;i++) {
+    uint32_t at=(source+i)&(DD_RING-1);struct dd_frame x=a[at],y=b[at],z=c[at],t=fourth[at];
+    int32_t l=(int32_t)x.l+y.l+z.l+t.l,r=(int32_t)x.r+y.r+z.r+t.r;
+    out[i]=(struct bs_frame){l/4,r/4};
+   }
+  } else {
+   for(uint32_t i=0;i<count;i++) {
+    uint32_t at=(source+i)&(DD_RING-1);struct dd_frame x=a[at],y=b[at],z=c[at],t=fourth[at];
+    int32_t l=(int32_t)x.l*ga+(int32_t)y.l*gb+(int32_t)z.l*gc+(int32_t)t.l*gd;
+    int32_t r=(int32_t)x.r*ga+(int32_t)y.r*gb+(int32_t)z.r*gc+(int32_t)t.r*gd;
+    out[i]=(struct bs_frame){l/1024,r/1024};
+   }
+  }
+  return;
+ }
+ for(uint32_t i=0;i<count;i++) {
+  uint32_t at=(source+i)&(DD_RING-1);int32_t l=0,r=0;
+  for(unsigned k=0;k<voices;k++) {
+   struct dd_frame x=ring[k][at];l+=(int32_t)x.l*level[k];r+=(int32_t)x.r*level[k];
+  }
+  out[i]=(struct bs_frame){l/1024,r/1024};
+ }
+}
 static bool stretching(const struct dd_deck *d)
 {
  const struct bs_state *s=&d->stretch;
@@ -81,7 +119,7 @@ uint32_t dd_stretch_service(struct dd_engine *e,uint32_t budget)
    s->first=p;atomic_store_explicit(&s->next_nominal,p,memory_order_relaxed);
    atomic_store_explicit(&s->next_fraction,0,memory_order_relaxed);
   }
-  used+=bs_service(s,&e->stretch_work,stretch_source,d,gains,oldest,written,budget-used);
+  used+=bs_service_with_batch(s,&e->stretch_work,stretch_source,d,gains,oldest,written,budget-used,stretch_mix_batch);
  }
  return used;
 }

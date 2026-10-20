@@ -55,6 +55,13 @@ struct bs_work {
  bool transient;
 };
 typedef struct bs_frame (*bs_read_fn)(void *context,unsigned stem,uint32_t source);
+/* Optional engine-owned bounded mixing. The caller has already validated the
+ * published source span. Destination is worker-private; copy exactly count
+ * frames using this call's immutable gain snapshot and the same /1024 rounding.
+ * It may only read source state and write out; resets remain exclusive. */
+typedef void (*bs_mix_batch_fn)(void *context,uint32_t source,uint32_t count,
+                              const uint16_t gains[BS_STEMS],struct bs_frame *out);
+/* Reset requires exclusive ownership against both service and renderer. */
 void bs_init(struct bs_state *s,uint32_t first,bool enabled);
 bool bs_request(struct bs_state *s,uint32_t ratio);
 uint32_t bs_actual(const struct bs_state *s);
@@ -65,6 +72,9 @@ bool bs_cancel_stale(struct bs_work *work);
 uint32_t bs_service(struct bs_state *s,struct bs_work *work,bs_read_fn read,
                     void *context,const uint16_t gains[BS_STEMS],uint32_t oldest,
                     uint32_t written,uint32_t budget);
+uint32_t bs_service_with_batch(struct bs_state *s,struct bs_work *work,bs_read_fn read,
+                    void *context,const uint16_t gains[BS_STEMS],uint32_t oldest,
+                    uint32_t written,uint32_t budget,bs_mix_batch_fn batch);
 /* Renderer only. Returns false until a complete plan is release-published. */
 bool bs_activate(struct bs_state *s,uint32_t *nominal,uint32_t *fraction);
 bool bs_buffered(struct bs_state *s,uint32_t oldest,uint32_t written);

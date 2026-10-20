@@ -785,8 +785,139 @@ static void test_stretch_settled_span(void)
  }
  printf("PASS settled stretch span: %u exact PCM/state/cache checks across eligibility, overlap, grain, gain, phase, mute, missing-stem and wrap boundaries\n",comparisons);
 }
+/* Exercise the production direct-ring provider against the old generic
+ * per-stem provider with identical private work, publication and PCM state. */
+static struct bs_frame batch_test_source(void *ctx,unsigned stem,uint32_t p)
+{
+ const struct dd_deck *d=ctx;
+ if(!d->voice[stem].present)return (struct bs_frame){0,0};
+ struct dd_frame x=d->voice[stem].ring[p&(DD_RING-1)];return (struct bs_frame){x.l,x.r};
+}
+static bool batch_test_stretching(const struct dd_deck *d)
+{
+ const struct bs_state *s=&d->stretch;
+ return atomic_load(&s->enabled)&&(atomic_load(&s->active)||atomic_load(&s->ready)||atomic_load(&s->requested)!=65536u);
+}
+static void batch_test_mix(void *ctx,uint32_t source,uint32_t count,const uint16_t gain[4],struct bs_frame *out)
+{
+ for(uint32_t i=0;i<count;i++) {
+  int32_t l=0,r=0;
+  for(unsigned stem=0;stem<4;stem++) {
+   struct bs_frame x=batch_test_source(ctx,stem,source+i);
+   l+=(int32_t)x.l*gain[stem];r+=(int32_t)x.r*gain[stem];
+  }
+  out[i]=(struct bs_frame){l/1024,r/1024};
+ }
+}
+static uint32_t batch_rng=1;
+static uint32_t batch_random32(void){batch_rng=batch_rng*1664525u+1013904223u;return batch_rng;}
+static uint32_t service_with_generic_source(struct dd_engine *e,uint32_t budget)
+{
+ uint32_t used=bs_cancel_stale(&e->stretch_work)?1u:0u;
+ for(unsigned k=0;k<2&&used<budget;k++) {
+  struct dd_deck *d=&e->deck[k];struct bs_state *s=&d->stretch;
+  if(e->stretch_work.owner&&e->stretch_work.owner!=s)continue;
+  if(!batch_test_stretching(d)&&!e->stretch_work.owner)continue;
+  uint32_t oldest=atomic_load_explicit(&d->read,memory_order_acquire),written=oldest+DD_RING;
+  uint16_t gains[4];bool any=false;uint32_t mute=atomic_load_explicit(&d->mute_mask,memory_order_relaxed);
+  for(unsigned j=0;j<4;j++) {
+   gains[j]=(mute&(1u<<j))?0:reference_bound(atomic_load_explicit(&d->voice[j].gain,memory_order_relaxed),0,256);
+   if(!d->voice[j].present)continue;
+   any=true;uint32_t n=atomic_load_explicit(&d->voice[j].written,memory_order_acquire)-oldest;
+   if(n>DD_RING)n=0;
+   if(n<written-oldest)written=oldest+n;
+  }
+  if(!any)continue;
+  if(!atomic_load_explicit(&s->active,memory_order_acquire)&&
+     !atomic_load_explicit(&s->ready,memory_order_acquire)&&!e->stretch_work.owner) {
+   uint32_t p=atomic_load_explicit(&d->source_clock,memory_order_acquire);
+   s->first=p;atomic_store_explicit(&s->next_nominal,p,memory_order_relaxed);
+   atomic_store_explicit(&s->next_fraction,0,memory_order_relaxed);
+  }
+  used+=bs_service(s,&e->stretch_work,batch_test_source,d,gains,oldest,written,budget-used);
+ }
+ return used;
+}
+static void compare_batch_state(void){
+ struct bs_state *oa=engine.stretch_work.owner,*ob=reference_engine.stretch_work.owner;
+ assert((oa==NULL)==(ob==NULL));
+ if(oa)assert((oa==&engine.deck[0].stretch)==(ob==&reference_engine.deck[0].stretch));
+ engine.stretch_work.owner=NULL;reference_engine.stretch_work.owner=NULL;
+ assert(!memcmp(&engine,&reference_engine,sizeof(engine)));
+ engine.stretch_work.owner=oa;reference_engine.stretch_work.owner=ob;
+}
+static void fill_batch_rings(struct dd_engine *e){
+ for(unsigned k=0;k<2;k++) {
+  struct dd_deck*d=&e->deck[k];uint32_t end=atomic_load(&d->read)+DD_RING;
+  for(unsigned stem=0;stem<4;stem++) {
+   uint32_t w=atomic_load(&d->voice[stem].written);
+   while(w!=end){d->voice[stem].ring[w&(DD_RING-1)]=(struct dd_frame){(int16_t)((w*137u+stem*719u+k*37)%60001u-30000),(int16_t)((w*83u+stem*409u+k*71)%60001u-30000)};w++;}
+   atomic_store(&d->voice[stem].written,end);
+  }
+ }
+}
+static struct bs_state batch_cancelled;
+static bool reset_seen;
+static void reset_during_batch(void *ctx,uint32_t p,uint32_t count,const uint16_t gain[4],struct bs_frame *out){
+ batch_test_mix(ctx,p,count,gain,out);bs_init(&batch_cancelled,123,true);reset_seen=true;
+}
+/* A reset injected into a private batch is deliberately more adversarial
+ * than the exclusive production reset contract. It must never publish a
+ * stale descriptor or touch shared tail data afterward. */
+static void test_batch_cancel(void){
+ const uint16_t gain[4]={256,256,256,256};
+ for(unsigned phase=0;phase<2;phase++) {
+  dd_init(&engine);dd_reset_deck(&engine.deck[0],15);fill_batch_rings(&engine);memset(&engine.stretch_work,0,sizeof(engine.stretch_work));
+  bs_init(&batch_cancelled,0,true);bs_request(&batch_cancelled,66846);
+  while(!atomic_load(&batch_cancelled.ready))assert(bs_service(&batch_cancelled,&engine.stretch_work,batch_test_source,&engine.deck[0],gain,0,DD_RING,1024));
+  assert(bs_activate(&batch_cancelled,NULL,NULL));atomic_store(&batch_cancelled.cursor,384);
+  if(phase)while(engine.stretch_work.stage!=3)assert(bs_service(&batch_cancelled,&engine.stretch_work,batch_test_source,&engine.deck[0],gain,0,DD_RING,8));
+  reset_seen=false;bs_service_with_batch(&batch_cancelled,&engine.stretch_work,batch_test_source,&engine.deck[0],gain,0,DD_RING,1024,reset_during_batch);
+  assert(reset_seen&&!atomic_load(&batch_cancelled.ready));
+  if(engine.stretch_work.owner){assert(bs_service(&batch_cancelled,&engine.stretch_work,batch_test_source,&engine.deck[0],gain,0,DD_RING,8)==1);assert(!engine.stretch_work.owner);}
+  assert(!atomic_load(&batch_cancelled.ready)&&batch_cancelled.first==123);
+  for(unsigned stem=0;stem<4;stem++)for(unsigned i=0;i<BS_OVERLAP;i++)assert(!batch_cancelled.tail[stem][i].l&&!batch_cancelled.tail[stem][i].r);
+ }
+}
+static void test_mix_batch_differential(void){
+ test_batch_cancel();unsigned checks=0;
+ const uint32_t budgets[]={8,9,31,64,127,1024,65536};
+ for(unsigned scenario=0;scenario<24;scenario++) {
+  dd_init(&engine);dd_init(&reference_engine);
+  for(unsigned k=0;k<2;k++) {
+   uint8_t mask=(scenario%15)+1;uint32_t origin=scenario&1?UINT32_MAX-2000:0;
+   dd_reset_deck(&engine.deck[k],mask);dd_set_stretch(&engine.deck[k],true);
+   atomic_store(&engine.deck[k].read,origin);atomic_store(&engine.deck[k].source_clock,origin);
+   bs_init(&engine.deck[k].stretch,origin,true);bs_request(&engine.deck[k].stretch,k?81920:32768);
+   atomic_store(&engine.deck[k].playing,1);
+   for(unsigned stem=0;stem<4;stem++)atomic_store(&engine.deck[k].voice[stem].written,origin);
+  }
+  memcpy(&reference_engine,&engine,sizeof(engine));
+  for(unsigned turn=0;turn<2000;turn++) {
+   if(turn%13==0)for(unsigned k=0;k<2;k++)for(unsigned stem=0;stem<4;stem++) {
+    uint16_t gain=(turn/13)%3?batch_random32()%257:256;atomic_store(&engine.deck[k].voice[stem].gain,gain);atomic_store(&reference_engine.deck[k].voice[stem].gain,gain);
+   }
+   if(turn%79==0)for(unsigned k=0;k<2;k++) {
+    uint32_t mute=batch_random32()&15u;atomic_store(&engine.deck[k].mute_mask,mute);atomic_store(&reference_engine.deck[k].mute_mask,mute);
+    uint32_t rate=32768+batch_random32()%(81920-32768+1);bs_request(&engine.deck[k].stretch,rate);bs_request(&reference_engine.deck[k].stretch,rate);
+   }
+   if(turn%211==0) {unsigned k=batch_random32()%2;atomic_store(&engine.deck[k].playing,0);atomic_store(&reference_engine.deck[k].playing,0);}
+   if(turn%211==7)for(unsigned k=0;k<2;k++){atomic_store(&engine.deck[k].playing,1);atomic_store(&reference_engine.deck[k].playing,1);}
+   fill_batch_rings(&engine);fill_batch_rings(&reference_engine);
+   uint32_t budget=budgets[turn%7];
+   assert(dd_stretch_service(&engine,budget)==service_with_generic_source(&reference_engine,budget));compare_batch_state();checks++;
+   if(turn%3==0){unsigned count=1+(batch_random32()%512);dd_render(&engine,out,count);dd_render(&reference_engine,reference_out,count);assert(!memcmp(out,reference_out,count*2*sizeof(*out)));compare_batch_state();checks++;}
+   if(turn==999){
+    for(unsigned k=0;k<2;k++) {dd_reset_deck(&engine.deck[k],15);dd_set_stretch(&engine.deck[k],true);dd_reset_deck(&reference_engine.deck[k],15);dd_set_stretch(&reference_engine.deck[k],true);bs_request(&engine.deck[k].stretch,66846);bs_request(&reference_engine.deck[k].stretch,66846);atomic_store(&engine.deck[k].playing,1);atomic_store(&reference_engine.deck[k].playing,1);}
+   }
+  }
+ }
+ printf("PASS %u exact whole-engine/state/planner/scratch/PCM checks: generic vs batch, changing per-slice gains, mutes, source wrap, sparse stems, pause, tempo, reset\n",checks);
+}
+
 int main(void)
 {
+ test_mix_batch_differential();
  test_stretch_settled_span();
  test_stretch_blocked_callback();
  test_stretch_retention_block_boundary();

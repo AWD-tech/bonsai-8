@@ -125,7 +125,7 @@ not an MCU emulator or a substitute for hardware testing.
 
 The same local song pair at 1x/~1.02x needs 1,257,210 charged units per second
 with unrestricted service. Limiting the planner to 362,616 units per second
-(the observed 0.4.11 rate, **not an established maximum capacity**) reproduces
+(approximately the observed 0.4.11 rate, **not an established maximum capacity**) reproduces
 129 B plan misses and 139,076 source frames advanced over 20 seconds, versus
 131 and 140,057 on hardware. Capacity scenarios at 650,000 and 1,000,000 also
 miss; 1,500,000 passes this workload. Work units are not equal-cost CPU cycles;
@@ -145,8 +145,47 @@ The private evidence is `hardware-tests/bonsai-0411-work-replay.json`; stage
 results are under `/tmp/bonsai-stage-profile/`. Host stage shares are not device
 cycle measurements.
 
-The next correction targets this measured path and must preserve onset/pitch
-quality. No new candidate or further flash is claimed here.
+## Unreleased processing reduction after the failed test
+
+The working source now rejects isolated-onset analysis as soon as its existing
+conditions cannot possibly succeed. It also batches private lookahead and
+transient work, shared-tail copying after the old overlap is finished, and
+four-stem source mixing. The ordinary search, onset thresholds, audio format,
+control mappings and persistent RAM allocation are unchanged. Source publication
+and generation checks still apply between bounded batches; reset and source
+mutation retain their exclusive storage-worker ownership contract.
+
+Five interleaved host runs of 500 actual-song B grains reduced median planner
+service time from **35.526 to 19.602 microseconds per grain (44.82% less time)**.
+The chosen-frame hash matched. This excludes decoding/refill and is an Apple
+host measurement, not Cortex-M4 timing or an end-to-end playback result.
+Evidence: `hardware-tests/analysis-mix-batch-host.json`.
+
+Validation of the integrated source:
+
+- Nine C sanitizer suites and all 59 Python tests pass.
+- All 114 audio screens and the 600-second functional simulation pass with
+  unchanged thresholds. The simulation still has the timing limitation described
+  above; it is a correctness check.
+- 64,008 exact engine/planner/scratch/PCM comparisons validate the optional
+  mixed-source provider against the generic per-stem provider, including changing
+  gains, mutes, missing stems, wraps, pauses and exclusive resets. The existing
+  11,352 renderer comparisons also pass.
+- Private differential tests preserve 5,760 complete plan/tail results;
+  72 tail budget/prefix/wrap cases and audio-progress/reset cases pass.
+- Independent strict Cortex-M4 compilation and source review found no blocker.
+  Standalone object analysis estimates 40 more bytes of peak analysis stack and
+  648 more bytes of text for the mixed-source change; final linked sizes have not
+  been measured. No persistent buffer was added.
+
+Logs: `/tmp/bonsai-post0411-tests.log` and `/tmp/bonsai-post0411-sync.log`.
+The original 0.4.11 release artifacts are unchanged. These are unreleased source
+changes, with no new version, linked firmware, flash or website deployment.
+The measured host improvement does **not** establish that the original capacity
+gap is closed. The next gate is actual MCU planner completion time versus each
+grain's deadline, including storage and audio interference. Repeating the old
+functional suite alone cannot justify another claimed fix.
+
 Changed tempo on both decks, the 0.5x–1.25x range, USB audio with
 mirroring, audible quality and recording/save/export remain hardware gates.
 0.4.11 is a confirmed failed tempo candidate and must not replace the default
