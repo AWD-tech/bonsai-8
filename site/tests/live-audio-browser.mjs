@@ -27,7 +27,7 @@ if(process.env.RECORDING_FIXTURE_DIR){
   routes.set(`/recording-fixture/${name}`,{contentType:'application/octet-stream',body});
   recordingFixture[name]={bytes:body.length,sha256:createHash('sha256').update(body).digest('hex')};
  }
- for(const name of ['device-library.js','playlists.js'])routes.set(`/${name}`,{contentType:'text/javascript',body:await readFile(new URL(`../public/${name}`,import.meta.url),'utf8')});
+ for(const name of ['device-library.js','playlists.js','upload-preparation.js','upload-codec.js','upload-sha256.js','upload-worker.js'])routes.set(`/${name}`,{contentType:'text/javascript',body:await readFile(new URL(`../public/${name}`,import.meta.url),'utf8')});
  routes.set('/record-export-browser.fixture.js',{contentType:'text/javascript',body:await readFile(new URL('./record-export-browser.fixture.js',import.meta.url),'utf8')});
  routes.set('/recording',{contentType:'text/html',body:`<!doctype html><meta charset="utf-8"><title>Synthetic host recording export</title>
  <script type="module">import {run} from './record-export-browser.fixture.js';

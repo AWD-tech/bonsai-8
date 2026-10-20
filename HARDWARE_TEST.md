@@ -1,5 +1,38 @@
 # Physical test — 2026-09-30
 
+## 0.4.7 device session — October 20, 2026
+
+The pinned 114,328-byte application (SHA-256
+`bc263e96ff5d2aaab4b102355b093dba9402514647ff836e0f3d1992170a7437`)
+flashed with 502 chunks, 28 pages and CRC-valid finalization acknowledgements.
+Normal runtime reports `bonsai-8-0.4.7`. Five occupied songs, all eight metadata
+sectors and 51 representative audio-sector hashes match the October 17 snapshot.
+The player was already in bootloader, so there was no fresh preflash snapshot.
+No song storage was written; application-flash readback remains unavailable.
+
+A stable 20.058-second dry window passed: both decks at 1×, eight gains 256,
+no mutes, zero new underruns/errors/clips; mean callback time 1,642.3 µs.
+A 20.106-second window using the actual website poll/parser through a serial
+adapter also had zero new underruns or audio/storage errors with named USB
+capture active, 39 samples and 183 mirror replies. The capture contained
+18.944 seconds of non-silent 48 kHz stereo (peak 805, RMS 165.8). This is not
+an actual browser speaker-output test. An earlier dry window included master
+and fader movement: zero dropouts, but not a stable eight-full-stem pass.
+
+**Live tempo failed the listening test.** After two forward wheel taps the user
+reported stuttering or pitch changes. The next snapshot showed A at 66846/65536
+(~1.02×), cumulative underruns A=139/B=19 (previous stable tests ended at zero),
+and a cumulative maximum audio callback of 8,798 µs versus a 5,333 µs block.
+B had been paused by that snapshot, so this is not a controlled steady
+comparison and does not isolate every cause. It is sufficient to keep live
+sync unverified and hold 0.4.7 from default release promotion. Recording,
+physical beat-follow/nudge, browser listening/reconnection and browser flashing
+remain open gates. No 0.4.6 evidence is relabeled as a 0.4.7 pass.
+
+Private evidence: `flash-20261020-002355.jsonl`, `bonsai-0.4.7-postflash.json`,
+`bonsai-0.4.7-eight-dry-repeat.json`, `bonsai-0.4.7-eight-site-usb.json`,
+`bonsai-0.4.7-eight-site-usb-audio.json`, and `bonsai-0.4.7-tempo-dry.json`.
+
 ## Prepared 0.4.7 candidate — October 18, 2026
 
 0.4.7 is built for the next device session and has **not been flashed or physically tested**. Its host audio screens now pass the reproduced 0.4.6 bass, stereo and isolated-attack failures, including 105 tone/stereo cases, seven pulse cases and two sustained-background guards. Ten simulated minutes with eight stems pass without underruns/clips. Nine C sanitizer suites, 59 Python tests and 158 website tests pass. These do not measure the MCU's real-time load or establish listening quality.

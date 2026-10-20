@@ -54,6 +54,11 @@ jobs:
         run: |
           npm install --no-save --prefix "$RUNNER_TEMP/browser-test" playwright@1.62.1
           "$RUNNER_TEMP/browser-test/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Check upload preparation in foreground and hidden tabs
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/browser-test/node_modules/playwright/index.mjs
+          UPLOAD_VALIDATION_REPORT: ${{ runner.temp }}/upload-responsiveness.json
+        run: node site/tests/upload-responsiveness-browser.mjs
       - name: Generate synthetic recording with the actual firmware adapter
         env:
           RECORDING_FIXTURE_DIR: ${{ runner.temp }}/recording-fixture

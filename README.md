@@ -8,7 +8,7 @@ Development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). Companio
 
 ## Release status
 
-**Bonsai 8 0.4.7 is prepared for device testing.** It fixes the reproduced bass-pitch drift, stereo imbalance and repeated isolated attacks found in 0.4.6. The expanded host audio screens and ten-minute simulated eight-stem test pass. It has not been flashed or physically tested. Read the [measurements and build details](docs/sync-validation-047.md) and [device checklist](docs/DEVICE_CHECKLIST_047.md). Physical listening, USB/mirroring load and recording remain release gates.
+**Bonsai 8 0.4.7 is prepared for device testing.** It fixes the reproduced bass-pitch drift, stereo imbalance and repeated isolated attacks found in 0.4.6. The expanded host audio screens and ten-minute simulated eight-stem test pass. It was flashed on October 20: runtime, five-song preservation and twenty-second eight-stem dry/USB tests passed. A subsequent 1.02× tempo change produced audible stuttering and new underruns, so it is still held from the default installer. Read the [measurements and build details](docs/sync-validation-047.md) and [device checklist](docs/DEVICE_CHECKLIST_047.md). Physical listening, USB/mirroring load and recording remain release gates.
 
 **Bonsai 8 0.4.6 is installed and available as a test candidate from the [website installer](https://sp-1.xyz/).** It adds separate saved A/B playlists, ordered by source BPM, for physical FUNCTION + rocker browsing. Configure membership and BPM under **On your player → Deck playlists · BPM order**. Loading a song cues only the selected deck; the other continues. Tap PLAY to start the new song. See [playlist details](docs/PLAYLISTS.md).
 

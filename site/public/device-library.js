@@ -1,3 +1,6 @@
+import {encodeP14S} from './upload-codec.js?v=20261020-upload-01';
+export {encodeP14S};
+import {UploadPreparation} from './upload-preparation.js?v=20261020-upload-01';
 import {PLAYLIST_BLOCK,playlistBank,decodePlaylist,writablePlaylistBank,playlistRows,encodePlaylist,playlistIdentity} from './playlists.js?v=20261017-playlists-01';
 // Bonsai 8 storage format. The index owns visibility; audio is published only
 // after every acknowledged sector and the extended table have been verified.
@@ -32,12 +35,6 @@ export function publishSongIndex(meta,table,slot,stems){
  stems.forEach((stem,s)=>{out[at+8+s]=stem.frames?1:0;m.setUint32(at+12+s*4,Math.ceil(length/140),true);m.setUint32(at+28+s*4,0,true);m.setUint32(716+(i*4+s)*4,stem.blocks,true);const e=16+(i*4+s)*16;x3.fill(0,e,e+16);if(stem.frames){x.setUint32(e+4,length*2,true);x.setUint32(e+8,stem.blocks,true);x3[e+12]=5;x3[e+13]=1;x3[e+14]=128;}});
  out.fill(0,976+i*2,978+i*2);out[1008+i]=0;x.setUint16(6,x3.slice(16,1040).reduce((sum,v)=>(sum+v)&65535,0),true);return {meta:out,x3};
 }
-export function encodeP14S(left,right,start=0){
- const out=new Uint8Array(512);out.set(bytes('P14S'));out[5]=1;out[11]=0x5b;out[12]=24;out[13]=1;
- const value=(channel,i)=>{const f=Math.max(-1,Math.min(1,channel[i]||0));return ((Math.round(f*(f<0?32768:32767))>>2)&16383);};
- for(let g=0;g<70;g++){const p=16+g*7,at=start+g*2,a=value(left,at),b=value(right,at),c=value(left,at+1),d=value(right,at+1);out[p]=a>>6;out[p+1]=(a<<2)|(b>>12);out[p+2]=b>>4;out[p+3]=(b<<4)|(c>>10);out[p+4]=c>>2;out[p+5]=(c<<6)|(d>>8);out[p+6]=d;}
- return out;
-}
 export function decodeAudioSector(block){
  if(block.length!==512||block[11]!==0x5b||block[14]>3)throw new Error('Invalid audio sector. Export stopped.');const magic=new TextDecoder().decode(block.slice(0,4));
  if(magic==='P14S'&&block[12]===24&&block[13]===1){const out=new Int16Array(280),sample=n=>((n>8191?n-16384:n)*4)>>block[14];for(let g=0;g<70;g++){const p=16+g*7;out[g*4]=sample((block[p]<<6)|(block[p+1]>>2));out[g*4+1]=sample(((block[p+1]&3)<<12)|(block[p+2]<<4)|(block[p+3]>>4));out[g*4+2]=sample(((block[p+3]&15)<<10)|(block[p+4]<<2)|(block[p+5]>>6));out[g*4+3]=sample(((block[p+5]&63)<<8)|block[p+6]);}return {frames:140,pcm:out,codec:5};}
@@ -45,12 +42,29 @@ export function decodeAudioSector(block){
  throw new Error('This audio codec cannot be exported by this version. No device data was changed.');
 }
 export function pcmWav(pcm,rate=24000){const out=new Uint8Array(44+pcm.length*2),d=view(out);out.set(bytes('RIFF'));d.setUint32(4,out.length-8,true);out.set(bytes('WAVEfmt '),8);d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,2,true);d.setUint32(24,rate,true);d.setUint32(28,rate*4,true);d.setUint16(32,4,true);d.setUint16(34,16,true);out.set(bytes('data'),36);d.setUint32(40,pcm.length*2,true);for(let i=0;i<pcm.length;i++)d.setInt16(44+i*2,pcm[i],true);return out;}
-export async function prepareStems(buffers,onProgress=()=>{}){
- if(!buffers.some(Boolean))throw new Error('Separate a song or import stems first.');const result=[];
- for(let s=0;s<4;s++){const b=buffers[s];if(!b){result.push({frames:0,blocks:0,data:new Uint8Array()});continue;}const frames=Math.ceil(b.duration*24000);if(frames>11522560)throw new Error('Songs on the player must be shorter than eight minutes.');
- const ctx=new OfflineAudioContext(2,frames,24000),source=ctx.createBufferSource();source.buffer=b;source.connect(ctx.destination);source.start();const rendered=await ctx.startRendering(),blocks=Math.ceil(frames/140),data=new Uint8Array(blocks*512);for(let k=0;k<blocks;k++)data.set(encodeP14S(rendered.getChannelData(0),rendered.getChannelData(1),k*140),k*512);result.push({frames,blocks,data});onProgress((s+1)/4);await new Promise(r=>setTimeout(r,0));}
- return result;
+// Additional peak above the caller's retained AudioBuffers. Includes all
+// encoded stems, the largest native stereo render, and bounded worker staging.
+export function estimatePreparationBytes(buffers){
+ const frames=Array.from({length:4},(_,i)=>buffers[i]?Math.ceil(buffers[i].duration*24000):0);
+ if(frames.some(n=>!Number.isFinite(n)||n<0||n>11522560))throw new Error('Songs on the player must be shorter than eight minutes.');
+ return frames.reduce((sum,n)=>sum+Math.ceil(n/140)*512,0)+Math.max(0,...frames)*8+4*1024*1024;
 }
+export async function prepareStems(buffers,onProgress=()=>{},{signal}={}){
+ if(!buffers.some(Boolean))throw new Error('Separate a song or import stems first.');
+ // Reject all oversized inputs before allocating or processing any stem.
+ estimatePreparationBytes(buffers);
+ const result=[],preparation=await new UploadPreparation({signal}).start();
+ try{
+  for(let s=0;s<4;s++){
+   preparation.check();const b=buffers[s];if(!b){result.push({frames:0,blocks:0,data:new Uint8Array()});onProgress((s+1)/4);continue;}
+   const frames=Math.ceil(b.duration*24000),ctx=new OfflineAudioContext(2,frames,24000),source=ctx.createBufferSource();source.buffer=b;source.connect(ctx.destination);source.start();
+   const rendered=await ctx.startRendering();
+   result.push(await preparation.encode(rendered.getChannelData(0),rendered.getChannelData(1),frames,p=>onProgress((s+p)/4)));
+  }
+  return result;
+ }finally{preparation.close();}
+}
+export async function uploadSignature(stems,onProgress){const preparation=await new UploadPreparation().start();try{return await preparation.signature(stems,onProgress);}finally{preparation.close();}}
 export class DeviceLibrary {
  constructor(connection,{onProgress=()=>{},checkpointStore=globalThis.localStorage}={}){this.connection=connection;this.onProgress=onProgress;this.store=checkpointStore;}
  async run(work){return this.connection.withTransfer(async io=>{validateLayout(await io.exchange(bytes('SP1XFER!P'),28));let success=false;try{const result=await work(this.transport(io));success=true;return result;}finally{if(success)await io.exchange(bytes('X'),1).then(reply=>{if(reply[0]!==120)throw new Error('The player did not exit transfer mode.');});}});}
@@ -89,7 +103,7 @@ export class DeviceLibrary {
  }
  async remove(slot){return this.run(async dev=>{const {meta,x3}=await this.snapshot(dev);if(!indexSongs(meta).some(s=>s.slot===slot))throw new Error('That song slot is already empty.');await this.clearPlaylistSong(dev,meta,x3,slot);await this.publish(dev,deleteSongIndex(meta,slot));});}
  async upload(slot,stems){
- slotIndex(slot);validatePreparedStems(stems);const signature=await sha256(join(...stems.map(s=>join(u32(s.frames),s.data)))),key=`bonsai8-upload-${slot}-${signature}`;
+ slotIndex(slot);validatePreparedStems(stems);const signature=await uploadSignature(stems,p=>this.onProgress(p,'Checking prepared audio')),key=`bonsai8-upload-${slot}-${signature}`;
  return this.run(async dev=>{const {meta,x3}=await this.snapshot(dev),next=publishSongIndex(meta,x3,slot,stems),identity=await sha256(join(meta,x3));let checkpoint;
  try{checkpoint=JSON.parse(this.store?.getItem(key)||'null');}catch{}
  if(checkpoint?.identity!==identity||!Array.isArray(checkpoint.verified)||checkpoint.verified.length!==4||checkpoint.verified.some((n,s)=>!Number.isInteger(n)||n<0||n>stems[s].blocks))checkpoint={identity,verified:[0,0,0,0]};const total=stems.reduce((n,s)=>n+s.blocks,0);let done=0;

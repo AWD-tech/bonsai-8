@@ -1,5 +1,6 @@
-import {setupLibrary} from './library-ui.js?v=20261017-playlists-01';
-import { AudioEngine } from './audio.js?v=20261003-two-decks-01';
+import {setupLibrary} from './library-ui.js?v=20261020-upload-01';
+import { AudioEngine } from './audio.js?v=20261020-import-01';
+import { decodeStemFiles } from './import-stems.js?v=20261020-import-01';
 import { setupBrowserMixer, exportSnapshot } from './browser-mixer.js?v=20261003-layout-02';
 import { setupMatching } from './match.js?v=20261003-match-01';
 import { Device } from './device.js?v=20261002-bonsai-01';
@@ -145,10 +146,10 @@ $('split').onclick=safe(async()=>{
 $('cancel-split').onclick=()=>{worker?.terminate();worker=null;setBusy(false);$('separation-title').textContent='Separation cancelled';$('separation-info').textContent='Your original track is still loaded.';$('split').hidden=false;};
 $('load-stems').onclick=safe(async()=>{
  if(importBusy||busy||matching?.busy)return;const targetDeck=audio.selected;const files=Array.from({length:4},(_,i)=>$(`stem-file-${i}`).files[0]);if(!files.some(Boolean))throw new Error('Choose at least one stem file.');
- importBusy=true;browserMixer.sync();$('load-stems').disabled=true;
- try{const buffers=[];for(const file of files){if(!file){buffers.push(null);continue;}if(file.size>200*1024*1024)throw new Error('Each stem must be smaller than 200 MB.');const b=await audio.decode(file);if(b.duration>600)throw new Error('Each stem must be under 10 minutes.');buffers.push(b);}
- original=null;$('separation').hidden=true;await setAudio(buffers,'Your stem session','imported',targetDeck);$('import-dialog').close();notify('Your stems are loaded and aligned.');}
- finally{importBusy=false;browserMixer.sync();$('load-stems').disabled=false;libraryUI?.controls();}
+ importBusy=true;browserMixer.sync();$('load-stems').disabled=true;const buttonLabel=$('load-stems').firstChild,originalLabel=buttonLabel.textContent;
+ try{const buffers=await decodeStemFiles(audio,files,index=>{buttonLabel.textContent=`Reading stem ${index+1} of 4… `;});
+ original=null;$('separation').hidden=true;await setAudio(buffers,'Your stem session','imported',targetDeck);$('import-dialog').close();notify('Your stems are loaded. No separation or tempo matching was applied.');}
+ finally{importBusy=false;browserMixer.sync();buttonLabel.textContent=originalLabel;$('load-stems').disabled=false;libraryUI?.controls();}
 });
 $('download').onclick=safe(async()=>{
  if(exportBusy||mode==='source'||mode==='empty')return;const exported=exportSnapshot(audio);audio.ensureCapacity([],exported.buffers.reduce((bytes,buffer)=>bytes+(buffer?44+buffer.length*buffer.numberOfChannels*2:0),0)*2);exportBusy=true;$('download').disabled=true;
