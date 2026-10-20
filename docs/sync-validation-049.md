@@ -47,3 +47,12 @@ Hardware verification is pending: repeat eight-stem unity and changed-tempo
 windows, then USB capture/mirroring and listening. Recording, beat following,
 phase nudges and browser release gates remain separate. Do not label the
 candidate verified until the corresponding physical checks pass.
+
+## First device attempt
+
+The first transfer was acknowledged but normal startup failed. Recovery to the
+previous 0.4.8 binary succeeded, with the song preservation checks unchanged.
+The planner change is inactive during unity-tempo startup, and no source-level
+startup fault has been established. A difference in how long the updater keeps
+the restart connection open is being tested separately with identical bytes.
+See [the hardware report](../HARDWARE_TEST.md); this binary remains withheld.

@@ -2,7 +2,11 @@
 
 ## Prepared 0.4.9 planner candidate — October 20, 2026
 
-The next candidate batches scratch-only correlation work to remove redundant per-comparison atomic validation. It preserves scoring, work budgets and validation before shared writes/publication, with no planner RAM increase. New service timing counters include preemption, so they are not exclusive CPU measurements. No 0.4.9 physical pass is claimed yet. See [the planner report](docs/sync-validation-049.md).
+The next candidate batches scratch-only correlation work to remove redundant per-comparison atomic validation. It preserves scoring, work budgets and validation before shared writes/publication, with no planner RAM increase. New service timing counters include preemption, so they are not exclusive CPU measurements. The first 0.4.9 transfer completed, but the user reported no normal power-on after reconnecting. No normal USB runtime appeared. The device was recovered to the exact previous 0.4.8 binary; runtime, five-song index, eight metadata sectors and 51 representative audio sectors passed afterward. No 0.4.9 physical pass is claimed. See [the planner report](docs/sync-validation-049.md).
+
+The 0.4.9 application is 114,888 bytes, SHA-256 `7dfe867e40578d6be632bb92868bf80a2c92058a1c9172121c6b0f4cf8198165`, packaged from `d33c470ed4e29d5b23e410380680db6094fd8afe`. Its 29 pages / 505 chunks and both CRC-valid finalizations completed, but that is not flash readback or proof of startup. Recovery to 0.4.8 completed with 28 pages / 503 chunks. Private evidence: `flash-20261020-005357.jsonl`, `flash-20261020-005604.jsonl`, and `bonsai-0.4.8-recovery-postflash.json`.
+
+A read-only comparison with the [reference updater](https://solderless.engineering/utility/js/firmware.js?v=3) found matching page/chunk/finalization handling, including short last pages. The reference waits for a start response, disconnect or three-second timeout before closing; the local helper closed immediately after the start write/flush. A controlled retry keeps the exact binary and packet sequence, changing only this wait. It has **not run yet**. This difference is a hypothesis, not an established cause; padding or a new firmware image is not justified by this evidence. The default installer stays unchanged.
 
 ## 0.4.8 tempo-performance candidate — October 20, 2026
 
