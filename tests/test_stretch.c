@@ -267,6 +267,43 @@ static void test_transient_requires_observed_quiet_boundaries(void)
   }
  }
 }
+static void test_correlation_batches_preserve_budget_and_cancellation(void)
+{
+ memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=1000000;
+ bs_init(&state,0,true);assert(bs_request(&state,66846));prepare(64);assert(bs_activate(&state,NULL,NULL));
+ atomic_store(&state.cursor,BS_OVERLAP);
+ /* Reach the first ordinary candidate using tiny production worker slices. */
+ unsigned turns=0;
+ while(!work.owner||work.stride!=8||work.index||work.offset||work.highest!=-1e30f) {
+  assert(bs_service(&state,&work,source,NULL,gains,oldest,written,8)==8);
+  assert(++turns<10000);
+ }
+ struct bs_work initial=work,batched;
+ const uint32_t budgets[]={1,2,3,7,8,31,95,96,97,127,511,512,1023,1024};
+ for(unsigned b=0;b<sizeof(budgets)/sizeof(*budgets);b++) {
+  work=initial;uint32_t used=bs_service(&state,&work,source,NULL,gains,oldest,written,budgets[b]);
+  assert(used==(budgets[b]/2)*2);batched=work;
+  work=initial;
+  for(unsigned comparison=0;comparison<used/2;comparison++)
+   assert(bs_service(&state,&work,source,NULL,gains,oldest,written,2)==2);
+  /* Every correlation scalar and future candidate must match the exact same
+   * additions performed as separate two-unit calls, not only chosen audio. */
+  assert(work.offset==batched.offset&&work.index==batched.index&&work.stage==batched.stage);
+  assert(work.best==batched.best&&work.highest==batched.highest);
+  assert(!memcmp(work.dot,batched.dot,sizeof(work.dot)));
+  assert(!memcmp(work.energy,batched.energy,sizeof(work.energy)));
+  assert(!atomic_load(&state.ready));
+ }
+ /* A reset between slices invalidates private partial correlation without
+  * publishing or writing the new generation's tail. */
+ work=initial;assert(bs_service(&state,&work,source,NULL,gains,oldest,written,96)==96);
+ assert(work.owner==&state);
+ bs_init(&state,1234,true);
+ assert(bs_service(&state,&work,source,NULL,gains,oldest,written,1024)==1);
+ assert(!work.owner&&!atomic_load(&state.ready));
+ for(unsigned stem=0;stem<BS_STEMS;stem++)for(unsigned i=0;i<BS_OVERLAP;i++)
+  assert(!state.tail[stem][i].l&&!state.tail[stem][i].r);
+}
 static void test_adjacent_pairs_reuse_previous_midpoint(void)
 {
  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=1000000;
@@ -299,5 +336,6 @@ int main(void)
  test_fast_extreme_grain_falls_back_without_full_lookahead();
  test_transient_requires_observed_quiet_boundaries();
  test_adjacent_pairs_reuse_previous_midpoint();
+ test_correlation_batches_preserve_budget_and_cancellation();
  printf("PASS budgeted stretch: raw per-stem convex oracle, exact1x, stereo, clocks, wrap, bounds, coalescing, reset generation, poisoned scratch and budget partition invariance; state=%zu/work=%zu/two=%zu\n",sizeof(state),sizeof(work),sizeof(state)*2+sizeof(work));
 }

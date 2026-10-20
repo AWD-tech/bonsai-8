@@ -53,3 +53,13 @@ mirroring. Check new counters as well as original underruns, storage/USB errors,
 callback timing and listening for pitch, bass and stereo quality. Then exercise
 beat following and phase nudges. Recording and browser release gates remain
 separate; none is closed by this renderer optimization.
+
+## October 20 device result
+
+This candidate was flashed and reports the expected version. The five-song index,
+eight metadata sectors and 51 representative audio sectors pass preservation
+checks. A twenty-second eight-stem unity baseline passed, but a stable ~1.02x
+both-deck test failed with 61/62 missing-plan underruns. The user also heard
+stuttering or pitch changes. The source-starvation and storage/USB error counters
+stayed unchanged. See [the hardware report](../HARDWARE_TEST.md) for workload,
+measurements and limits. Do not promote this binary as a tempo fix.

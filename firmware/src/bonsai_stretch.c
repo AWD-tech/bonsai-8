@@ -201,11 +201,24 @@ uint32_t bs_service(struct bs_state *s,struct bs_work *w,bs_read_fn read,void *c
    }
   } else if(w->stage==COARSE||w->stage==REFINE) {
    if(budget-used<2)break;
-   struct bs_frame x=w->cache[w->offset+w->index];float l=x.l,r=x.r;
-   w->dot[0]+=l*w->reference[w->index][0];w->dot[1]+=r*w->reference[w->index][1];
-   /* Match the reference window in the candidate norm as well as dot. */
-   float weight=(float)(w->index*(BS_OVERLAP-w->index))*(1.f/(BS_OVERLAP*BS_OVERLAP));
-   w->energy[0]+=l*l*weight;w->energy[1]+=r*r*weight;used+=2;w->index+=w->stride;
+   /* Correlation touches only this worker's cache/reference/scratch. Bound
+    * one batch by both the caller's remaining budget and this candidate;
+    * validate again before another batch or any shared-tail/publication work.
+    * Reading four acquire atomics for every stereo comparison otherwise
+    * spends more than 60000 Cortex-M barriers on one dense grain. */
+   uint32_t comparisons=(BS_OVERLAP-w->index+w->stride-1u)/w->stride;
+   if(comparisons>(budget-used)/2u)comparisons=(budget-used)/2u;
+   uint32_t end=w->index+comparisons*w->stride;
+   float dot_l=w->dot[0],dot_r=w->dot[1],energy_l=w->energy[0],energy_r=w->energy[1];
+   for(uint32_t i=w->index;i<end;i+=w->stride) {
+    struct bs_frame x=w->cache[w->offset+i];float l=x.l,r=x.r;
+    dot_l+=l*w->reference[i][0];dot_r+=r*w->reference[i][1];
+    /* Keep accumulation order and candidate/reference window identical. */
+    float weight=(float)(i*(BS_OVERLAP-i))*(1.f/(BS_OVERLAP*BS_OVERLAP));
+    energy_l+=l*l*weight;energy_r+=r*r*weight;
+   }
+   w->dot[0]=dot_l;w->dot[1]=dot_r;w->energy[0]=energy_l;w->energy[1]=energy_r;
+   w->index=end;used+=comparisons*2u;
    if(w->index>=BS_OVERLAP)next_candidate(w);
   } else if(w->stage==TAIL) {
    if(budget-used<8)break;

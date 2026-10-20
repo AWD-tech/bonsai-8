@@ -8,7 +8,9 @@ Development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). Companio
 
 ## Release status
 
-**Bonsai 8 0.4.8 is the tempo-performance test candidate.** It reduces repeated interpolation, source reads and synchronization in the real-time renderer, while keeping the unchanged deck on its efficient dry path. Exact-output regressions and audio-quality screens pass on the host; this does not yet establish device timing or listening quality. New diagnostics distinguish waiting for a tempo plan from waiting for source audio. See [the candidate report](docs/sync-validation-048.md). The default website installer is unchanged until physical checks pass.
+**Bonsai 8 0.4.9 is the next hardware-test candidate.** It targets the missing-plan failures measured on 0.4.8 by batching redundant validation in the tempo planner. Audio scoring, work budgets and storage behavior remain unchanged. See [the planner report](docs/sync-validation-049.md). Device timing and listening must pass before installer promotion.
+
+**Bonsai 8 0.4.8 is installed for testing and has a confirmed tempo failure.** Runtime, five-song preservation and steady eight-stem unity playback pass. At ~1.02x on both decks, a stable twenty-second test recorded 61/62 new missing-plan underruns, with zero source-starvation or storage errors. The renderer optimization passed software checks but did not complete the hardware fix. Work now targets repeated checks inside the tempo planner. See [the candidate report](docs/sync-validation-048.md) and [physical evidence](HARDWARE_TEST.md). The default website installer remains unchanged.
 
 **Bonsai 8 0.4.7 is prepared for device testing.** It fixes the reproduced bass-pitch drift, stereo imbalance and repeated isolated attacks found in 0.4.6. The expanded host audio screens and ten-minute simulated eight-stem test pass. It was flashed on October 20: runtime, five-song preservation and twenty-second eight-stem dry/USB tests passed. A subsequent 1.02× tempo change produced audible stuttering and new underruns, so it is still held from the default installer. Read the [measurements and build details](docs/sync-validation-047.md) and [device checklist](docs/DEVICE_CHECKLIST_047.md). Physical listening, USB/mirroring load and recording remain release gates.
 
@@ -30,7 +32,7 @@ Based on [chattock/sp1-tape-looper](https://github.com/chattock/sp1-tape-looper)
 
 ## Controls — 0.4.6 candidate
 
-The table describes the installed effect-free 0.4.6 candidate; 0.4.7 keeps these controls unchanged. Version 0.4.4 had a high-pass filter; earlier 0.4.0–0.4.3 builds also included Echo and Reverb.
+The table describes the effect-free 0.4.6 candidate; 0.4.7 and 0.4.8 keep these controls unchanged. Version 0.4.4 had a high-pass filter; earlier 0.4.0–0.4.3 builds also included Echo and Reverb.
 
 | Control | Action |
 | --- | --- |

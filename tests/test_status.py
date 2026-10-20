@@ -49,6 +49,8 @@ class StatusFormatTests(unittest.TestCase):
         self.assertEqual(data['grid_bpm'],[4294967295]*2)
         self.assertEqual(data['plan_underruns'],[4294967295]*2)
         self.assertEqual(data['source_underruns'],[4294967295]*2)
+        for key in ('plan_us','plan_calls','plan_units','plan_max'):
+            self.assertEqual(data[key],4294967295)
         self.assertEqual(len(data['gains']),8)
         self.assertEqual(data['record']['slot'],-2147483648)
         self.assertEqual(data['pitch_preserving'],1)

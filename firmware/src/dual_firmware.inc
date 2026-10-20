@@ -24,6 +24,8 @@ static bool dual_record_busy(void) {
 
 static struct dd_ui_queue dd_ui;
 static uint32_t dd_ui_until;
+/* Storage-thread wall time, including preemption by audio and USB. */
+static uint32_t dd_plan_us,dd_plan_calls,dd_plan_units,dd_plan_max;
 static uint16_t dd_physical[4];
 static uint16_t dd_button_mask;
 static char dd_ui_line[2048];
@@ -359,7 +361,7 @@ static void dual_status(void)
  uint32_t sof_us=dd_capture_sof_us,sof_calls=dd_capture_sof_calls,sof_max=dd_capture_sof_max;
  irq_unlock(key);
  int n=snprintf(line,sizeof(dd_ui_line),
-  "{\"firmware\":\"bonsai-8-0.4.8\",\"mirror\":1,\"effects\":[],\"pitch_preserving\":1,\"playlists\":1,\"grid_bpm\":[%u,%u],\"grid_valid\":[%u,%u],\"sync\":[%u,%u],\"sync_error\":[%u,%u],\"tap_count\":[%u,%u],\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"plan_underruns\":[%u,%u],\"source_underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"audio_us_total\":%u,\"audio_blocks\":%u,\"capture_push_us\":%u,\"capture_push_calls\":%u,\"capture_push_max\":%u,\"capture_sof_us\":%u,\"capture_sof_calls\":%u,\"capture_sof_max\":%u,\"cdc_us\":%u,\"cdc_max\":%u,\"cdc_bytes\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
+  "{\"firmware\":\"bonsai-8-0.4.9\",\"mirror\":1,\"effects\":[],\"pitch_preserving\":1,\"playlists\":1,\"grid_bpm\":[%u,%u],\"grid_valid\":[%u,%u],\"sync\":[%u,%u],\"sync_error\":[%u,%u],\"tap_count\":[%u,%u],\"usb_capture\":1,\"capture_active\":%u,\"capture_packets\":%u,\"capture_underruns\":%u,\"capture_overflows\":%u,\"capture_errors\":%u,\"position\":[%u,%u],\"length\":[%u,%u],\"record\":{\"state\":%u,\"slot\":%d,\"frames\":%u,\"error\":%u},\"fx\":[%u,%u,%u,%u,%u,%u,%u,%u],\"fx_clips\":%u,\"bulk_write\":8,\"storage\":%u,\"deck\":%u,\"slots\":[%d,%d],\"playing\":[%u,%u],\"underruns\":[%u,%u],\"plan_underruns\":[%u,%u],\"source_underruns\":[%u,%u],\"read_errors\":%u,\"bad_blocks\":%u,\"unsupported\":%u,\"clips\":%u,\"audio_us_max\":%u,\"audio_us_total\":%u,\"audio_blocks\":%u,\"plan_us\":%u,\"plan_calls\":%u,\"plan_units\":%u,\"plan_max\":%u,\"capture_push_us\":%u,\"capture_push_calls\":%u,\"capture_push_max\":%u,\"capture_sof_us\":%u,\"capture_sof_calls\":%u,\"capture_sof_max\":%u,\"cdc_us\":%u,\"cdc_max\":%u,\"cdc_bytes\":%u,\"i2s_errors\":%u,\"crc_errors\":%u,\"refill_blocks\":%u,\"refill_ms\":%u,\"refill_retries\":%u,\"refill_fallbacks\":%u,\"reset\":%u,\"fault\":%u,\"master\":%u,\"speed\":[%u,%u],\"mute\":[%u,%u],\"gains\":[%u,%u,%u,%u,%u,%u,%u,%u]}\n",
   atomic_load(&dd_sync_bpm[0]),atomic_load(&dd_sync_bpm[1]),
   atomic_load(&dd_sync_valid[0]),atomic_load(&dd_sync_valid[1]),
   atomic_load(&dd_sync_state[0]),atomic_load(&dd_sync_state[1]),
@@ -372,7 +374,7 @@ static void dual_status(void)
   atomic_load(&dd.deck[0].playing),atomic_load(&dd.deck[1].playing),
   dd.deck[0].underruns,dd.deck[1].underruns,
   dd.deck[0].plan_underruns,dd.deck[1].plan_underruns,dd.deck[0].source_underruns,dd.deck[1].source_underruns,dd_read_errors,dd_bad_blocks,atomic_load(&dd_errors),dd.clips,
-  g_audio_us_max,audio_total,audio_blocks,push_us,push_calls,push_max,sof_us,sof_calls,sof_max,g_dual_cdc_us,g_dual_cdc_max,g_dual_cdc_bytes,g_i2s_wfail_cnt,emmc_crc_rd_errs,g_m71_as,g_m71_wu,g_m71_rt,g_m71_fb,g_resetreas,g_last_fault_reason,atomic_load(&dd.master),
+  g_audio_us_max,audio_total,audio_blocks,dd_plan_us,dd_plan_calls,dd_plan_units,dd_plan_max,push_us,push_calls,push_max,sof_us,sof_calls,sof_max,g_dual_cdc_us,g_dual_cdc_max,g_dual_cdc_bytes,g_i2s_wfail_cnt,emmc_crc_rd_errs,g_m71_as,g_m71_wu,g_m71_rt,g_m71_fb,g_resetreas,g_last_fault_reason,atomic_load(&dd.master),
   dd_tempo_actual(&dd.deck[0]),dd_tempo_actual(&dd.deck[1]),
   atomic_load(&dd.deck[0].mute_mask),atomic_load(&dd.deck[1].mute_mask),
   atomic_load(&dd.deck[0].voice[0].gain),atomic_load(&dd.deck[0].voice[1].gain),
@@ -708,7 +710,12 @@ static void dual_storage_thread(void *a,void *b,void *c)
   bool filled=best<8&&dual_fill(best/4,best%4);
   /* Source refill has priority over bounded tempo planning and host replies.
    * Correlation belongs here, never in the real-time audio callback. */
-  bool planned=dd_stretch_service(&dd,1024u)>0;
+  uint32_t plan_start=DWT->CYCCNT;
+  uint32_t plan_used=dd_stretch_service(&dd,1024u);
+  uint32_t plan_elapsed=(DWT->CYCCNT-plan_start)/64u;
+  dd_plan_us+=plan_elapsed;++dd_plan_calls;dd_plan_units+=plan_used;
+  if(plan_elapsed>dd_plan_max)dd_plan_max=plan_elapsed;
+  bool planned=plan_used>0;
   if(g_usb_up)dual_transfer();
   if(filled||planned)k_yield();else k_msleep(1);
  }
