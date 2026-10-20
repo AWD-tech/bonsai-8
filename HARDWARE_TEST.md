@@ -1,5 +1,22 @@
 # Physical test — 2026-09-30
 
+## Built 0.4.11 performance candidate — October 20, 2026
+
+0.4.10 remains a confirmed hardware tempo failure. The next candidate batches
+settled stretched playback, stops repeated blocked-state checks, calculates
+retention once per callback, and uses packed stereo correlation with exact
+rolling energy. Reference quantization can change near-tied grain choices; the
+search geometry and quality gates are unchanged. Thread runtime profiling is
+included for the next physical measurement.
+
+Nine C sanitizer suites, 59 Python tests, 114 host audio screens, 600 simulated
+seconds and 11,352 exact renderer comparisons pass. The application is 120,892
+bytes; RAM is 254,756 / 262,144 bytes. SHA-256:
+`8b22168c1ae802cba09a1a1b516cfbae401a299c9590b9178cc9386a7bf7da8b`.
+No 0.4.11 flash, runtime, preservation or physical playback pass is claimed.
+See [the candidate report](docs/sync-validation-0411.md).
+
+
 ## 0.4.10 hardware tempo failure — October 20, 2026
 
 **0.4.10 failed the stable single-changed-deck tempo test.** It starts private

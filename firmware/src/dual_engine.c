@@ -194,11 +194,77 @@ static void render_steady(struct dd_engine *e,int16_t *out,uint32_t count,
   e->deck[k].fraction=fraction[k];e->deck[k].last=last[k];
  }
 }
+struct stretched_span {
+ uint32_t chosen,cursor,sequence,fraction;
+ uint16_t gain[4];
+ bool tail;
+};
+static bool prepare_stretched_span(const struct dd_deck *d,uint32_t count,
+                                  uint32_t oldest,uint32_t written,bool play,bool any,
+                                  const uint16_t gain[4],struct stretched_span *span)
+{
+ const struct bs_state *s=&d->stretch;
+ if(!count||count>DD_RING||!play||!any||d->starved||d->envelope!=256||
+    (d->fraction!=0&&d->fraction!=32768)||
+    !atomic_load_explicit(&s->active,memory_order_acquire))return false;
+ uint32_t cursor=atomic_load_explicit(&s->cursor,memory_order_relaxed);
+ uint32_t needed=2+((d->fraction+(count-1)*32768u)>>16);
+ /* Do not cross descriptor activation or the final midpoint, which needs
+  * the next plan's published tail. Those callbacks keep the full fallback. */
+ if(cursor>=BS_HOP||needed>BS_HOP-cursor)return false;
+ uint32_t chosen=atomic_load_explicit(&s->chosen,memory_order_relaxed),first=chosen+cursor;
+ if(first-oldest>=0x80000000u||written-first>=0x80000000u||written-first<needed)return false;
+ for(unsigned stem=0;stem<4;stem++) {
+  if(d->voice[stem].present&&d->voice[stem].current_gain!=gain[stem])return false;
+  span->gain[stem]=d->voice[stem].present?gain[stem]:0;
+ }
+ span->chosen=chosen;span->cursor=cursor;span->fraction=d->fraction;
+ span->sequence=atomic_load_explicit(&s->sequence,memory_order_relaxed);span->tail=s->active_tail;
+ return true;
+}
+static struct bs_frame stretched_span_raw(const struct dd_deck *d,const struct stretched_span *span,
+                                          unsigned stem,uint32_t i)
+{
+ struct dd_frame x=d->voice[stem].present?d->voice[stem].ring[(span->chosen+i)&(DD_RING-1)]:
+  (struct dd_frame){0,0};
+ if(span->tail&&i<BS_OVERLAP) {
+  struct bs_frame old=d->stretch.tail[stem][i];
+  x.l=((int32_t)old.l*(int32_t)(BS_OVERLAP-i)+(int32_t)x.l*(int32_t)i)/(int32_t)BS_OVERLAP;
+  x.r=((int32_t)old.r*(int32_t)(BS_OVERLAP-i)+(int32_t)x.r*(int32_t)i)/(int32_t)BS_OVERLAP;
+ }
+ return (struct bs_frame){x.l,x.r};
+}
+static struct dd_wide_frame stretched_span_sample(struct dd_deck *d,struct stretched_span *span)
+{
+ struct bs_state *s=&d->stretch;uint32_t i=span->cursor;
+ /* Preserve the renderer-owned pairs exactly, including muted/missing stems,
+  * so a following boundary/ramp callback can reuse its preceding midpoint. */
+ if(!s->cached_valid||s->cached_cursor!=i||s->cached_sequence!=span->sequence) {
+  bool adjacent=s->cached_valid&&s->cached_cursor+1==i&&s->cached_sequence==span->sequence;
+  for(unsigned stem=0;stem<4;stem++) {
+   s->cached[stem][0]=adjacent?s->cached[stem][1]:stretched_span_raw(d,span,stem,i);
+   s->cached[stem][1]=stretched_span_raw(d,span,stem,i+1);
+  }
+  s->cached_cursor=i;s->cached_sequence=span->sequence;s->cached_valid=true;
+ }
+ int32_t l=0,r=0;
+ for(unsigned stem=0;stem<4;stem++)if(span->gain[stem]) {
+  struct bs_frame a=s->cached[stem][0];int32_t sl=a.l,sr=a.r;
+  if(span->fraction) {
+   struct bs_frame b=s->cached[stem][1];
+   sl+=((int32_t)b.l-a.l)/2;sr+=((int32_t)b.r-a.r)/2;
+  }
+  l+=sl*(int32_t)span->gain[stem];r+=sr*(int32_t)span->gain[stem];
+ }
+ span->fraction+=32768;span->cursor+=span->fraction>>16;span->fraction&=65535;
+ return (struct dd_wide_frame){l/1024,r/1024};
+}
 void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
 {
  uint32_t pos[2],before[2],available[2],step[2],clock[2],written[2],tempo[2];
- bool play[2],any[2]={false,false},stretch[2];
+ bool play[2],any[2]={false,false},stretch[2],rendered[2]={false,false},blocked[2];
  struct steady_voice steady_voice[2][4];unsigned voices[2]={0,0};bool steady[2];
+ struct stretched_span span[2];bool span_ready[2];
  uint16_t gain[2][4]; uint32_t master=bound(atomic_load(&e->master),0,256);
  for(unsigned k=0;k<2;k++) {
   struct dd_deck *d=&e->deck[k];
@@ -216,8 +282,11 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
    if(n>DD_RING) n=0;
    if(n<available[k]) available[k]=n;
   }
+  blocked[k]=!play[k]||!any[k];
   written[k]=pos[k]+available[k];
   steady[k]=prepare_steady(d,count,available[k],step[k],play[k],any[k],gain[k],steady_voice[k],&voices[k]);
+  span_ready[k]=stretch[k]&&prepare_stretched_span(d,count,pos[k],written[k],play[k],any[k],gain[k],&span[k]);
+  rendered[k]=span_ready[k];
  }
  if(steady[0]&&steady[1]) {
   render_steady(e,out,count,pos,step,play,any,steady_voice,voices,master);
@@ -235,21 +304,33 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
     }
     continue;
    }
+   if(span_ready[k]) {
+    d->last=stretched_span_sample(d,&span[k]);
+    ml+=d->last.l;mr+=d->last.r;
+    continue;
+   }
    bool buffered;
    if(stretch[k]) {
-    uint32_t nominal=clock[k],fraction=d->source_fraction/2;
-    bool boundary=atomic_load_explicit(&d->stretch.cursor,memory_order_relaxed)==BS_HOP;
-    bool ready=(!play[k]||!any[k])?false:bs_activate(&d->stretch,&nominal,&fraction);
-    if(ready&&boundary) {
-     /* Only this renderer changes actual tempo when it activates a plan. */
-     tempo[k]=bs_actual(&d->stretch);
-     clock[k]=nominal;d->source_fraction=fraction*2;
-     /* A first descriptor starts on a whole native frame. A dry callback
-      * may have stopped at its midpoint; do not shorten the first grain by
-      * carrying that old interpolation phase into the new output clock. */
-     if(!d->stretch.active_tail)d->fraction=0;
+    buffered=false;
+    if(!blocked[k]) {
+     uint32_t nominal=clock[k],fraction=d->source_fraction/2;
+     bool boundary=atomic_load_explicit(&d->stretch.cursor,memory_order_relaxed)==BS_HOP;
+     bool ready=bs_activate(&d->stretch,&nominal,&fraction);
+     if(ready&&boundary) {
+      /* Only this renderer changes actual tempo when it activates a plan. */
+      tempo[k]=bs_actual(&d->stretch);
+      clock[k]=nominal;d->source_fraction=fraction*2;
+      /* A first descriptor starts on a whole native frame. A dry callback
+       * may have stopped at its midpoint; do not shorten the first grain by
+       * carrying that old interpolation phase into the new output clock. */
+      if(!d->stretch.active_tail)d->fraction=0;
+     }
+     buffered=ready&&bs_buffered(&d->stretch,pos[k],written[k]);
+     /* Neither source publication nor a missing plan can become usable
+      * while this synchronous callback holds off the storage worker.
+      * Keep rendering the identical fade, but check again next block. */
+     if(!buffered)blocked[k]=true;
     }
-    buffered=ready&&bs_buffered(&d->stretch,pos[k],written[k]);
    } else buffered=available[k]>=(d->starved?512u:2u);
    if(play[k]&&any[k]&&!buffered) {
     if(!d->starved) {
@@ -298,11 +379,9 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
     d->fraction+=stretch[k]?32768u:step[k];
     uint32_t advance=d->fraction>>16;d->fraction&=65535;
     if(stretch[k]) {
+     rendered[k]=true;
      if(advance)bs_advance(&d->stretch);
      d->source_fraction+=tempo[k];clock[k]+=d->source_fraction>>17;d->source_fraction&=131071;
-     uint32_t retain=bs_retain(&d->stretch);
-     if((int32_t)(retain-clock[k])>0)retain=clock[k];
-     if((int32_t)(retain-pos[k])>0)pos[k]=retain;
     } else {pos[k]+=advance;available[k]-=advance;}
    }
    ml+=dl*d->envelope/256; mr+=dr*d->envelope/256;
@@ -313,6 +392,27 @@ void dd_render(struct dd_engine *e,int16_t *out,uint32_t count)
 publish:
  for(unsigned k=0;k<2;k++) {
   struct dd_deck *d=&e->deck[k];
+  if(span_ready[k]) {
+   /* This callback never activates another grain and storage cannot run
+    * during it. Publish the same final cursor/clock once instead of issuing
+    * acquire/release barriers at every 48 kHz output sample. */
+   d->fraction=span[k].fraction;
+   atomic_store_explicit(&d->stretch.cursor,span[k].cursor,memory_order_release);
+   uint32_t phase=d->source_fraction+count*tempo[k];
+   clock[k]+=phase>>17;d->source_fraction=phase&131071;
+  }
+  /* Ring release was already published only here. During the synchronous
+   * callback, keep the initial oldest bound for source checks: storage cannot
+   * reclaim it yet. Retention is monotone within a grain and across activation:
+   * every new chosen >= the previous next_nominal-search bound, and the next
+   * nominal and audible clock advance. Thus one final calculation equals the
+   * previous per-frame maximum, including wrap, pause and partial starvation.
+   * A deck that rendered no sample must keep its original read position. */
+  if(rendered[k]) {
+   uint32_t retain=bs_retain(&d->stretch);
+   if((int32_t)(retain-clock[k])>0)retain=clock[k];
+   if((int32_t)(retain-pos[k])>0)pos[k]=retain;
+  }
   /* Tape playback consumes and releases the same number of native frames.
    * Keep the audible clock independent: future stretch modes retain history
    * without advancing the displayed song merely because storage is released. */

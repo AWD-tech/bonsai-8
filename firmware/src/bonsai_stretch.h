@@ -36,11 +36,16 @@ struct bs_state {
  * end. Completed searches park per deck without retaining this shared worker. */
 struct bs_work {
  struct bs_frame cache[BS_CACHE];
- float reference[BS_OVERLAP][2];
+ struct bs_frame reference[BS_OVERLAP];
  struct bs_state *owner;
+ /* The packed reference folds channel balance into a shared-scale int16
+  * coefficient. Exact integer moments track the quadratic energy window. */
+ int64_t corr_dot,moment_a[2],moment_b[2],moment_e[2];
+ float pack_scale;
+ uint32_t reference_abs[2];
  struct bs_plan plan;
  uint32_t sequence,first,count,index,offset,limit,best,refine_end;
- float dot[2],energy[2],highest,reference_energy,reference_peak;
+ float highest,reference_energy,reference_peak;
  float balance[2],reference_power[2];
  int8_t sign[2];
  uint8_t crossings[2];
@@ -54,8 +59,9 @@ void bs_init(struct bs_state *s,uint32_t first,bool enabled);
 bool bs_request(struct bs_state *s,uint32_t ratio);
 uint32_t bs_actual(const struct bs_state *s);
 bool bs_cancel_stale(struct bs_work *work);
-/* Worker only. Budget charges source channels copied and correlation channels
- * compared. All cache/reference/tail stages are incremental, including reset. */
+/* Worker only. Budget charges source channels copied, reference/energy
+ * preparation and correlation channels compared. Every sample stage is
+ * incremental, including reset. */
 uint32_t bs_service(struct bs_state *s,struct bs_work *work,bs_read_fn read,
                     void *context,const uint16_t gains[BS_STEMS],uint32_t oldest,
                     uint32_t written,uint32_t budget);

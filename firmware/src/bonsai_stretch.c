@@ -7,7 +7,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <string.h>
-enum { CACHE=1,LOOKAHEAD,REFERENCE,TRANSIENT,COARSE,REFINE,TAIL,PUBLISH };
+enum { CACHE=1,LOOKAHEAD,REFERENCE,TRANSIENT,COARSE,REFINE,TAIL,PUBLISH,PACK,ENERGY };
 /* Constant-fold the exact existing float expression once into flash. Every
  * candidate uses the same overlap window, so no per-comparison conversion or
  * multiplication is necessary. No RAM or correlation arithmetic changes. */
@@ -111,19 +111,47 @@ static struct bs_frame mix(bs_read_fn read,void *ctx,uint32_t p,const uint16_t g
 }
 static void next_candidate(struct bs_work *w)
 {
- float energy=w->energy[0]*w->balance[0]+w->energy[1]*w->balance[1];
- float dot=w->dot[0]*w->balance[0]+w->dot[1]*w->balance[1];
- float score=energy>1?dot/sqrtf(energy):-1e30f;
+ /* For stride s, i=s*j and i*(OVERLAP-i)=s*s*j*(N-j).
+  * The common reference scaling cancels when comparing candidate scores. */
+ float factor=(float)(w->stride*w->stride)*(1.f/(BS_OVERLAP*BS_OVERLAP));
+ float energy=(float)w->moment_e[0]*factor*w->balance[0]+
+  (float)w->moment_e[1]*factor*w->balance[1];
+ float score=energy>1?(float)w->corr_dot/sqrtf(energy):-1e30f;
  if(score>w->highest){w->highest=score;w->best=w->offset;}
- w->index=0;w->dot[0]=w->dot[1]=w->energy[0]=w->energy[1]=0;
- if(w->stage==COARSE) {
-  w->offset+=8;
-  if(w->offset>w->limit) {
-   w->stage=REFINE;w->offset=w->best>7?w->best-7:0;
-   w->refine_end=w->best+7;if(w->refine_end>w->limit)w->refine_end=w->limit;
-   w->highest=-1e30f;w->stride=1;
-  }
- } else if(++w->offset>w->refine_end){w->stage=TAIL;w->index=0;}
+ w->index=0;w->corr_dot=0;
+ if(w->stage==COARSE&&w->offset+8>w->limit) {
+  w->offset=w->best>7?w->best-7:0;
+  w->refine_end=w->best+7;if(w->refine_end>w->limit)w->refine_end=w->limit;
+  w->highest=-1e30f;w->stride=1;w->stage=ENERGY;
+  memset(w->moment_a,0,sizeof(w->moment_a));
+  memset(w->moment_b,0,sizeof(w->moment_b));
+  memset(w->moment_e,0,sizeof(w->moment_e));
+  return;
+ }
+ if(w->stage==REFINE&&w->offset+1>w->refine_end){w->stage=TAIL;return;}
+ struct bs_frame old=w->cache[w->offset],next=w->cache[w->offset+BS_OVERLAP];
+ int32_t x[2]={old.l,old.r},y[2]={next.l,next.r};
+ uint32_t n=BS_OVERLAP/w->stride;
+ for(unsigned ch=0;ch<2;ch++) {
+  int64_t removed=(int64_t)x[ch]*x[ch],added=(int64_t)y[ch]*y[ch];
+  int64_t keep=w->moment_a[ch]-removed;
+  /* Sliding q(j)=j*(N-j) left once gives
+   * q(j-1)=q(j)+2*j-(N+1). All operations remain exact. */
+  w->moment_e[ch]+=2*w->moment_b[ch]-(n+1)*keep+(n-1)*added;
+  w->moment_b[ch]+=(n-1)*added-keep;
+  w->moment_a[ch]=keep+added;
+ }
+ w->offset+=w->stride;
+}
+static void pack_reference(struct bs_work *w)
+{
+ /* window <= .25. A shared scale preserves the existing channel balance;
+  * nearest rounding loses at most half one coefficient unit. It cannot be
+  * bit-identical to the old float accumulation near equal-score candidates.
+  * Every coefficient stays within int16, even at full-scale source input. */
+ float maximum=.25f*fmaxf(w->reference_abs[0]*w->balance[0],
+                          w->reference_abs[1]*w->balance[1]);
+ w->pack_scale=32767.f/fmaxf(1.f,maximum);w->stage=PACK;
 }
 static void ordinary_search(struct bs_work *w,uint32_t chosen)
 {
@@ -190,7 +218,10 @@ uint32_t bs_service(struct bs_state *s,struct bs_work *w,bs_read_fn read,void *c
    for(uint32_t i=w->index;i<end;i++) {
     struct bs_frame x=mix(read,ctx,chosen+BS_HOP+i,gain);
     float weight=window[i];
-    w->reference[i][0]=x.l*weight;w->reference[i][1]=x.r*weight;
+    w->reference[i]=x;
+    uint32_t abs_l=x.l<0?-(int32_t)x.l:x.l,abs_r=x.r<0?-(int32_t)x.r:x.r;
+    if(abs_l>w->reference_abs[0])w->reference_abs[0]=abs_l;
+    if(abs_r>w->reference_abs[1])w->reference_abs[1]=abs_r;
     w->reference_power[0]+=(float)x.l*x.l*weight;w->reference_power[1]+=(float)x.r*x.r*weight;
     float energy=(float)x.l*x.l+(float)x.r*x.r;
     int16_t channel[2]={x.l,x.r};
@@ -209,12 +240,13 @@ uint32_t bs_service(struct bs_state *s,struct bs_work *w,bs_read_fn read,void *c
     float maximum=fmaxf(w->reference_power[0],w->reference_power[1]);
     for(unsigned c=0;c<2;c++)w->balance[c]=w->reference_power[c]>1?
      maximum/(fmaxf(w->reference_power[c],maximum*.01f)*(1+w->crossings[c])):0;
-    w->index=0;w->dot[0]=w->dot[1]=w->energy[0]=w->energy[1]=0;w->highest=-1e30f;w->offset=0;w->stride=8;w->stage=COARSE;
+    w->index=0;w->corr_dot=0;w->highest=-1e30f;w->offset=0;w->stride=8;w->stage=COARSE;
     /* An isolated onset needs its nominal time mapping, not correlation to
      * another copy of itself. Look through the entire next grain so its
      * late onsets cannot escape the overlap-sized correlation cache. */
     if(w->scan_peak>65536.f&&w->scan_energy<w->scan_peak*256.f)w->stage=TRANSIENT;
     else ordinary_search(w,chosen);
+    if(w->stage==COARSE)pack_reference(w);
    }
   } else if(w->stage==TRANSIENT) {
    uint32_t cost=w->index<w->count?2u:8u;if(budget-used<cost)break;
@@ -244,8 +276,48 @@ uint32_t bs_service(struct bs_state *s,struct bs_work *w,bs_read_fn read,void *c
      if(best<0)best=0;
      if(best>w->limit)best=w->limit;
      w->best=(uint32_t)best;w->transient=true;w->index=0;w->stage=TAIL;
-    } else ordinary_search(w,chosen);
+    } else {
+     ordinary_search(w,chosen);
+     if(w->stage==COARSE)pack_reference(w);
+    }
    }
+  } else if(w->stage==PACK) {
+   if(budget-used<2)break;
+   uint32_t count=(budget-used)/2;
+   if(count>BS_OVERLAP-w->index)count=BS_OVERLAP-w->index;
+   uint32_t end=w->index+count;
+   for(uint32_t i=w->index;i<end;i++) {
+    struct bs_frame x=w->reference[i];
+    float l=x.l*window[i]*w->balance[0]*w->pack_scale;
+    float r=x.r*window[i]*w->balance[1]*w->pack_scale;
+    int32_t il=(int32_t)(l+(l>=0?.5f:-.5f)),ir=(int32_t)(r+(r>=0?.5f:-.5f));
+    if(il>32767)il=32767;
+    if(il<-32767)il=-32767;
+    if(ir>32767)ir=32767;
+    if(ir<-32767)ir=-32767;
+    w->reference[i]=(struct bs_frame){il,ir};
+   }
+   w->index=end;used+=2*count;
+   if(w->index==BS_OVERLAP) {w->index=0;w->stage=ENERGY;}
+  } else if(w->stage==ENERGY) {
+   /* Initialize three moments only once per coarse/refine search. Across
+    * every candidate, next_candidate rolls them forward in constant work.
+    * Worst E is 10133030442106880 at N=384/full scale, well inside int64. */
+   if(budget-used<2)break;
+   uint32_t count=(BS_OVERLAP-w->index+w->stride-1)/w->stride;
+   if(count>(budget-used)/2)count=(budget-used)/2;
+   uint32_t end=w->index+count*w->stride,n=BS_OVERLAP/w->stride;
+   for(uint32_t i=w->index;i<end;i+=w->stride) {
+    struct bs_frame x=w->cache[w->offset+i];int32_t channels[2]={x.l,x.r};
+    uint32_t j=i/w->stride;
+    for(unsigned ch=0;ch<2;ch++) {
+     int64_t energy=(int64_t)channels[ch]*channels[ch];
+     w->moment_a[ch]+=energy;w->moment_b[ch]+=j*energy;
+     w->moment_e[ch]+=(int64_t)j*(n-j)*energy;
+    }
+   }
+   w->index=end;used+=2*count;
+   if(w->index>=BS_OVERLAP){w->index=0;w->stage=w->stride==8?COARSE:REFINE;}
   } else if(w->stage==COARSE||w->stage==REFINE) {
    if(budget-used<2)break;
    /* Correlation touches only this worker's cache/reference/scratch. Bound
@@ -256,15 +328,22 @@ uint32_t bs_service(struct bs_state *s,struct bs_work *w,bs_read_fn read,void *c
    uint32_t comparisons=(BS_OVERLAP-w->index+w->stride-1u)/w->stride;
    if(comparisons>(budget-used)/2u)comparisons=(budget-used)/2u;
    uint32_t end=w->index+comparisons*w->stride;
-   float dot_l=w->dot[0],dot_r=w->dot[1],energy_l=w->energy[0],energy_r=w->energy[1];
-   for(uint32_t i=w->index;i<end;i+=w->stride) {
-    struct bs_frame x=w->cache[w->offset+i];float l=x.l,r=x.r;
-    dot_l+=l*w->reference[i][0];dot_r+=r*w->reference[i][1];
-    /* Keep accumulation order and candidate/reference window identical. */
-    float weight=window[i];
-    energy_l+=l*l*weight;energy_r+=r*r*weight;
+   /* Joint-stereo packed multiply-accumulate is exact on host and Cortex.
+    * Worst sum is 824608555008, so the 64-bit accumulator cannot overflow.
+    * memcpy handles alignment and aliasing without type-punning samples. */
+   int64_t dot=w->corr_dot;
+   const struct bs_frame *cache=w->cache+w->offset,*reference=w->reference;
+   uint32_t stride=w->stride;
+   for(uint32_t i=w->index;i<end;i+=stride) {
+#ifdef __ARM_FEATURE_DSP
+    uint32_t a,b;memcpy(&a,&cache[i],sizeof(a));memcpy(&b,&reference[i],sizeof(b));
+    dot=__builtin_arm_smlald(a,b,dot);
+#else
+    struct bs_frame x=cache[i],r=reference[i];
+    dot+=(int64_t)x.l*r.l+(int64_t)x.r*r.r;
+#endif
    }
-   w->dot[0]=dot_l;w->dot[1]=dot_r;w->energy[0]=energy_l;w->energy[1]=energy_r;
+   w->corr_dot=dot;
    w->index=end;used+=comparisons*2u;
    if(w->index>=BS_OVERLAP)next_candidate(w);
   } else if(w->stage==TAIL) {

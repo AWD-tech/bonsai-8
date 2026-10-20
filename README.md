@@ -8,6 +8,8 @@ Development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). Companio
 
 ## Release status
 
+**Bonsai 8 0.4.11 is built for hardware testing.** It reduces repeated renderer work and replaces per-comparison floating-point correlation/energy work with packed stereo arithmetic and rolling sums. Nine C sanitizer suites, 59 Python tests, 114 audio screens and the ten-minute simulation pass. It has not been flashed or tested on the player; the default installer remains 0.4.6. See [the candidate report](docs/sync-validation-0411.md).
+
 **Bonsai 8 0.4.10 was tested and failed live tempo on the device.** Flash transfer, runtime and five-song preservation checks passed. A stable 20.018-second test with A at 1x and B at ~1.02x recorded 96 new missing-plan underruns on B, with all eight stems at full level and no source/storage errors or control changes. Earlier planning passed software checks but did not fix the physical failure. See [the candidate report](docs/sync-validation-0410.md) and [hardware results](HARDWARE_TEST.md). The default website installer remains the 0.4.6 test candidate.
 
 **Bonsai 8 0.4.9 was the previous physical candidate and also failed live tempo.** After an unsuccessful first startup and recovery to 0.4.8, an identical-binary retry with the reference updater’s restart wait powered on successfully. Runtime and five-song preservation checks pass, but the user again reports tempo stuttering. A subsequent stable twenty-second test recorded 87 missing-plan underruns on A at ~1.02x while B remained at 1x. Its planner optimization passes host regressions. See [the planner report](docs/sync-validation-049.md) and [hardware results](HARDWARE_TEST.md). The public installer remains unchanged.

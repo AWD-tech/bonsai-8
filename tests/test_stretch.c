@@ -3,6 +3,7 @@
 #include "dual_engine.h"
 #include <assert.h>
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 static struct bs_state state;
@@ -283,37 +284,113 @@ static void test_correlation_batches_preserve_budget_and_cancellation(void)
  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=0;written=1000000;
  bs_init(&state,0,true);assert(bs_request(&state,66846));prepare(64);assert(bs_activate(&state,NULL,NULL));
  atomic_store(&state.cursor,BS_OVERLAP);
- /* Reach the first ordinary candidate using tiny production worker slices. */
- unsigned turns=0;
- while(!work.owner||work.stride!=8||work.index||work.offset||work.highest!=-1e30f) {
-  assert(bs_service(&state,&work,source,NULL,gains,oldest,written,8)==8);
-  assert(++turns<10000);
- }
- struct bs_work initial=work,batched;
  const uint32_t budgets[]={1,2,3,7,8,31,95,96,97,127,511,512,1023,1024};
- for(unsigned b=0;b<sizeof(budgets)/sizeof(*budgets);b++) {
-  work=initial;uint32_t used=bs_service(&state,&work,source,NULL,gains,oldest,written,budgets[b]);
-  assert(used==(budgets[b]/2)*2);batched=work;
+ for(unsigned refinement=0;refinement<2;refinement++) {
+  /* PACK and ENERGY may also begin at index zero. Nonzero complete moments
+   * plus the requested stride identify actual coarse/refine correlation. */
+  unsigned turns=0;
+  while(!work.owner||work.stride!=(refinement?1:8)||work.index||
+        !work.moment_e[0]||work.highest!=-1e30f) {
+   uint32_t used=bs_service(&state,&work,source,NULL,gains,oldest,written,8);
+   assert(used&&used<=8);assert(++turns<10000);
+  }
+  struct bs_work initial=work,batched;
+  for(unsigned b=0;b<sizeof(budgets)/sizeof(*budgets);b++) {
+   work=initial;uint32_t used=bs_service(&state,&work,source,NULL,gains,oldest,written,budgets[b]);
+   assert(used==(budgets[b]/2)*2);batched=work;
+   work=initial;
+   for(unsigned comparison=0;comparison<used/2;comparison++)
+    assert(bs_service(&state,&work,source,NULL,gains,oldest,written,2)==2);
+   /* Includes packed dot, every exact energy moment, chosen candidate,
+    * stage transitions and all remaining scalar/scratch state. */
+   assert(!memcmp(&work,&batched,sizeof(work)));
+   assert(!atomic_load(&state.ready));
+  }
   work=initial;
-  for(unsigned comparison=0;comparison<used/2;comparison++)
-   assert(bs_service(&state,&work,source,NULL,gains,oldest,written,2)==2);
-  /* Every correlation scalar and future candidate must match the exact same
-   * additions performed as separate two-unit calls, not only chosen audio. */
-  assert(work.offset==batched.offset&&work.index==batched.index&&work.stage==batched.stage);
-  assert(work.best==batched.best&&work.highest==batched.highest);
-  assert(!memcmp(work.dot,batched.dot,sizeof(work.dot)));
-  assert(!memcmp(work.energy,batched.energy,sizeof(work.energy)));
-  assert(!atomic_load(&state.ready));
+  if(!refinement) {
+   assert(bs_service(&state,&work,source,NULL,gains,oldest,written,96)==96);
+  } else {
+   assert(bs_service(&state,&work,source,NULL,gains,oldest,written,96)==96);
+   assert(work.owner==&state);
+   bs_init(&state,1234,true);
+   assert(bs_service(&state,&work,source,NULL,gains,oldest,written,1024)==1);
+   assert(!work.owner&&!atomic_load(&state.ready));
+   for(unsigned stem=0;stem<BS_STEMS;stem++)for(unsigned i=0;i<BS_OVERLAP;i++)
+    assert(!state.tail[stem][i].l&&!state.tail[stem][i].r);
+  }
  }
- /* A reset between slices invalidates private partial correlation without
-  * publishing or writing the new generation's tail. */
- work=initial;assert(bs_service(&state,&work,source,NULL,gains,oldest,written,96)==96);
- assert(work.owner==&state);
- bs_init(&state,1234,true);
- assert(bs_service(&state,&work,source,NULL,gains,oldest,written,1024)==1);
- assert(!work.owner&&!atomic_load(&state.ready));
- for(unsigned stem=0;stem<BS_STEMS;stem++)for(unsigned i=0;i<BS_OVERLAP;i++)
-  assert(!state.tail[stem][i].l&&!state.tail[stem][i].r);
+}
+static unsigned moment_pattern;
+static struct bs_frame moment_source(void *context,unsigned stem,uint32_t p)
+{
+ (void)source(context,stem,p);
+ uint32_t x=p*747796405u+2891336453u;
+ x=((x>>((x>>28u)+4u))^x)*277803737u;x=(x>>22u)^x;
+ if(moment_pattern==0)return (struct bs_frame){INT16_MIN,INT16_MAX};
+ if(moment_pattern==1)return (struct bs_frame){INT16_MAX,INT16_MIN};
+ if(moment_pattern==3)return (struct bs_frame){(int16_t)(x%257)-128,(int16_t)(x>>16)};
+ if(moment_pattern==4)return (struct bs_frame){(int16_t)x,(int16_t)(x%257)-128};
+ return (struct bs_frame){(int16_t)x,(int16_t)(x>>16)};
+}
+static void assert_exact_moments(void)
+{
+ uint32_t n=BS_OVERLAP/work.stride;
+ int64_t a[2]={0},b[2]={0},e[2]={0};
+ for(uint32_t j=0;j<n;j++) {
+  struct bs_frame x=work.cache[work.offset+j*work.stride];
+  int32_t channels[2]={x.l,x.r};
+  for(unsigned ch=0;ch<2;ch++) {
+   int64_t energy=(int64_t)channels[ch]*channels[ch];
+   a[ch]+=energy;b[ch]+=j*energy;e[ch]+=(int64_t)j*(n-j)*energy;
+  }
+ }
+ assert(!memcmp(a,work.moment_a,sizeof(a)));
+ assert(!memcmp(b,work.moment_b,sizeof(b)));
+ assert(!memcmp(e,work.moment_e,sizeof(e)));
+}
+static void test_packed_reference_and_rolling_energy(void)
+{
+ const uint16_t full[4]={256,256,256,256};
+ const uint32_t origins[]={10000,UINT32_MAX-1000};
+ unsigned checked=0;
+ for(moment_pattern=0;moment_pattern<5;moment_pattern++)for(unsigned origin=0;origin<2;origin++) {
+  memset(&state,0,sizeof(state));memset(&work,0,sizeof(work));oldest=origins[origin];written=oldest+1000000;
+  bs_init(&state,oldest,true);assert(bs_request(&state,66846));
+  assert(bs_service(&state,&work,moment_source,NULL,full,oldest,written,8)==1);
+  assert(bs_activate(&state,NULL,NULL));atomic_store(&state.cursor,BS_OVERLAP);
+  uint8_t coarse=0,refine=0;
+  unsigned calls=0,candidates=0;
+  while(!atomic_load(&state.ready)) {
+   if(work.owner&&!work.index&&work.moment_e[0]&&work.highest==-1e30f) {
+    if(work.stride==8&&!coarse) {
+     coarse=work.stage;
+     /* Every packed coefficient has at most half-unit rounding error.
+      * The common scale retains relative stereo balance and polarity. */
+     for(unsigned i=0;i<BS_OVERLAP;i++) {
+      struct bs_frame raw=moment_source(NULL,0,atomic_load(&state.chosen)+BS_HOP+i);
+      float weight=(float)(i*(BS_OVERLAP-i))*(1.f/(BS_OVERLAP*BS_OVERLAP));
+      float l=raw.l*weight*work.balance[0]*work.pack_scale;
+      float r=raw.r*weight*work.balance[1]*work.pack_scale;
+      assert(fabsf(l-work.reference[i].l)<=.503f);
+      assert(fabsf(r-work.reference[i].r)<=.503f);
+     }
+    }
+    if(work.stride==1&&!refine)refine=work.stage;
+   }
+   if(work.owner&&!work.index&&(work.stage==coarse||work.stage==refine)) {
+    assert_exact_moments();++checked;++candidates;
+   }
+   /* Two-unit slices expose every candidate boundary; source/tail stages
+    * need eight. A zero return only means their next source frame cannot
+    * fit this particular slice, so retry once with that documented cost. */
+   uint32_t used=bs_service(&state,&work,moment_source,NULL,full,oldest,written,2);
+   if(!used)used=bs_service(&state,&work,moment_source,NULL,full,oldest,written,8);
+   assert(used&&used<=8);assert(++calls<100000);
+  }
+  assert(coarse&&refine&&candidates>=150);
+ }
+ assert(checked>=900);
+ printf("PASS packed correlation: %u exact candidate-energy checks, full-scale/random/stereo-imbalance/wrap and half-unit reference bounds\n",checked);
 }
 static void test_parked_plan_tail_boundary_and_reset(void)
 {
@@ -457,6 +534,7 @@ int main(void)
  test_transient_requires_observed_quiet_boundaries();
  test_adjacent_pairs_reuse_previous_midpoint();
  test_correlation_batches_preserve_budget_and_cancellation();
+ test_packed_reference_and_rolling_energy();
  test_parked_plan_tail_boundary_and_reset();
  test_parked_transient_retains_selected_source();
  test_private_source_batches_cancel_before_publication();
