@@ -56,3 +56,19 @@ The planner change is inactive during unity-tempo startup, and no source-level
 startup fault has been established. A difference in how long the updater keeps
 the restart connection open is being tested separately with identical bytes.
 See [the hardware report](../HARDWARE_TEST.md); this binary remains withheld.
+
+## Retry and listening result
+
+A retry of the identical binary kept the start connection open for the reference
+updater's response/disconnect wait. It powered on and reported 0.4.9; all five
+song entries, eight metadata sectors and 51 representative audio sectors matched.
+This does not prove why the first attempt failed, since the entire image was
+transferred again.
+
+The user again reported stuttering after a tempo change. The following snapshot
+recorded 343 cumulative missing-plan underruns on B, zero source underruns and
+zero storage/I2S errors. By the snapshot A was paused and both requested speeds
+were back to 1x, so it is not a controlled changed-tempo measurement. A subsequent
+50-second observation retained that state with no additional underruns. The
+listening failure still prevents promotion; the next investigation targets the
+planner's delayed admission and use of its shared scratch buffer.

@@ -19,8 +19,9 @@ export function firmwareChunks(binary){
  return chunks;
 }
 export class FirmwareFlasher {
- constructor(onProgress=()=>{}){this.onProgress=onProgress;this.seq=1;this.pending=null;this.active=false;this.readError=null;}
+ constructor(onProgress=()=>{}){this.onProgress=onProgress;this.seq=1;this.pending=null;this.active=false;this.readError=null;this.startRequested=false;}
  fail(error){this.readError=error;if(this.pending){const p=this.pending;this.pending=null;clearTimeout(p.timer);p.reject(error);}}
+ resolvePending(reply){if(this.pending){const p=this.pending;this.pending=null;clearTimeout(p.timer);p.resolve(reply);}}
  async write(data){if(this.readError)throw this.readError;if(!this.active||!this.writer)throw new Error('The updater is not connected.');await this.writer.write(data);if(this.readError)throw this.readError;}
  async command(cmd,payload=new Uint8Array(),expected,timeout=5000){
   if(this.pending)throw new Error('An updater command is already pending.');
@@ -31,10 +32,25 @@ export class FirmwareFlasher {
   const {reply,error}=await observed;if(error)throw error;
   if(reply.command!==expected)throw new Error('Unexpected updater response. The application was not started.');return reply.payload;
  }
- async read(){let buffer=[];try{while(this.active){const {value,done}=await this.reader.read();if(done){if(this.active)this.fail(new Error('The updater disconnected. Reconnect in bootloader mode and retry the complete update.'));break;}for(const byte of value){buffer.push(byte);if(byte===0){const r=response(new Uint8Array(buffer));buffer=[];if(!r)throw new Error('Updater frame checksum or format is invalid. The application was not started.');if(this.pending?.seq===r.seq){const p=this.pending;this.pending=null;clearTimeout(p.timer);p.resolve(r);}}else if(buffer.length>4096)throw new Error('Invalid updater frame.');}}}catch(error){if(this.active)this.fail(error);}}
+ async startApplication(timeout=3000){
+  if(this.pending)throw new Error('An updater command is already pending.');
+  if(this.readError)throw this.readError;
+  const seq=this.seq++&255;
+  const result=new Promise((resolve,reject)=>{this.pending={seq,resolve,reject,timer:null};});
+  const pending=this.pending,observed=result.then(reply=>({reply}),error=>({error}));
+  // Register before writing: a reset may disconnect USB before write() resolves.
+  // Keep the port open like the reference updater, without assuming a 0x51 reply.
+  this.startRequested=true;
+  try{
+   await this.write(packet(0x50,seq));
+   if(this.pending===pending)pending.timer=setTimeout(()=>this.resolvePending(null),timeout);
+   const {error}=await observed;if(error)throw error;
+  }catch(error){this.fail(error);throw error;}
+ }
+ async read(){let buffer=[];try{while(this.active){const {value,done}=await this.reader.read();if(done){if(this.active){if(this.startRequested)this.resolvePending(null);else this.fail(new Error('The updater disconnected. Reconnect in bootloader mode and retry the complete update.'));}break;}for(const byte of value){buffer.push(byte);if(byte===0){const r=response(new Uint8Array(buffer));buffer=[];if(!r)throw new Error('Updater frame checksum or format is invalid. The application was not started.');if(this.pending?.seq===r.seq)this.resolvePending(r);}else if(buffer.length>4096)throw new Error('Invalid updater frame.');}}}catch(error){if(this.active){if(this.startRequested&&error.name==='NetworkError')this.resolvePending(null);else this.fail(error);}}}
  async flash(release){
   if(this.active)throw new Error('A firmware update is already running.');
-  this.active=true;this.readError=null;this.readTask=null;
+  this.active=true;this.readError=null;this.readTask=null;this.startRequested=false;
   try{
    const verified=await validateFirmware(release?.binary,release?.manifest),chunks=firmwareChunks(verified.binary);
    if(!globalThis.navigator?.serial)throw new Error('Use Chrome or Edge on a computer to update firmware.');
@@ -46,12 +62,10 @@ export class FirmwareFlasher {
    this.onProgress(0,'Writing Bonsai 8 application. Keep USB connected.');await this.command(0x46,undefined,0x47);
    for(let i=0;i<chunks.length;i++){const chunk=chunks[i];await this.write(packet(0x45,this.seq++&255,chunk.payload));await delay(chunk.offset===0&&chunk.page>0?100:5);if(!(i%8)||i===chunks.length-1)this.onProgress((i+1)/chunks.length,'Writing firmware');}
    await delay(150);const pages=Math.ceil(verified.binary.length/4096),first=await this.command(0x48,u32(0x20+pages-1),0x49);if(first.length!==4)throw new Error('Updater finalization is incomplete. The application was not started.');const counter=new DataView(first.buffer,first.byteOffset,first.byteLength).getUint32(0,true),second=await this.command(0x48,u32(counter),0x49);if(second.length!==4)throw new Error('Updater finalization is incomplete. The application was not started.');await delay(300);if(this.readError)throw this.readError;
-   // A successful start write may immediately close the USB bootloader. That is
-   // expected here; any earlier reader failure still prevents this command.
-   await this.writer.write(packet(0x50,this.seq++&255));
+   await this.startApplication();
    this.onProgress(1,'Update acknowledged. Hold FUNCTION to power on, then reconnect.');return {version:verified.manifest.version,sha256:verified.manifest.sha256,verification:'CRC-valid updater acknowledgements; application readback and running-version verification are still required.'};
   }finally{
-   this.active=false;try{await this.reader?.cancel();}catch{}try{await this.readTask;}catch{}try{this.reader?.releaseLock();}catch{}try{this.writer?.releaseLock();}catch{}try{await this.port?.close();}catch{}this.port=this.reader=this.writer=null;this.readTask=null;
+   this.active=false;try{await this.reader?.cancel();}catch{}try{await this.readTask;}catch{}try{this.reader?.releaseLock();}catch{}try{this.writer?.releaseLock();}catch{}try{await this.port?.close();}catch{}this.port=this.reader=this.writer=null;this.readTask=null;this.startRequested=false;
   }
  }
 }

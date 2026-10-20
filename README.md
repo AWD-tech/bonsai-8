@@ -8,7 +8,7 @@ Development: [AWD-tech/bonsai-8](https://github.com/AWD-tech/bonsai-8). Companio
 
 ## Release status
 
-**Bonsai 8 0.4.9 is held after an unsuccessful startup check.** Its planner optimization passes host regressions, but the first flash did not reach normal power-on. The player was recovered to 0.4.8 and song checks passed. A controlled updater restart-wait comparison is prepared; it is not a proven fix. See [the planner report](docs/sync-validation-049.md) and [hardware results](HARDWARE_TEST.md). The public installer remains unchanged.
+**Bonsai 8 0.4.9 is installed for physical testing.** After an unsuccessful first startup and recovery to 0.4.8, an identical-binary retry with the reference updater’s restart wait powered on successfully. Runtime and five-song preservation checks pass, but the user again reports tempo stuttering. The following snapshot recorded 343 missing-plan underruns on B; it was not a stable tempo window. Its planner optimization passes host regressions. See [the planner report](docs/sync-validation-049.md) and [hardware results](HARDWARE_TEST.md). The public installer remains unchanged.
 
 **Bonsai 8 0.4.8 is installed for testing and has a confirmed tempo failure.** Runtime, five-song preservation and steady eight-stem unity playback pass. At ~1.02x on both decks, a stable twenty-second test recorded 61/62 new missing-plan underruns, with zero source-starvation or storage errors. The renderer optimization passed software checks but did not complete the hardware fix. Work now targets repeated checks inside the tempo planner. See [the candidate report](docs/sync-validation-048.md) and [physical evidence](HARDWARE_TEST.md). The default website installer remains unchanged.
 

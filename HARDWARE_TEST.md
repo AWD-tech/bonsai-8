@@ -6,7 +6,15 @@ The next candidate batches scratch-only correlation work to remove redundant per
 
 The 0.4.9 application is 114,888 bytes, SHA-256 `7dfe867e40578d6be632bb92868bf80a2c92058a1c9172121c6b0f4cf8198165`, packaged from `d33c470ed4e29d5b23e410380680db6094fd8afe`. Its 29 pages / 505 chunks and both CRC-valid finalizations completed, but that is not flash readback or proof of startup. Recovery to 0.4.8 completed with 28 pages / 503 chunks. Private evidence: `flash-20261020-005357.jsonl`, `flash-20261020-005604.jsonl`, and `bonsai-0.4.8-recovery-postflash.json`.
 
-A read-only comparison with the [reference updater](https://solderless.engineering/utility/js/firmware.js?v=3) found matching page/chunk/finalization handling, including short last pages. The reference waits for a start response, disconnect or three-second timeout before closing; the local helper closed immediately after the start write/flush. A controlled retry keeps the exact binary and packet sequence, changing only this wait. It has **not run yet**. This difference is a hypothesis, not an established cause; padding or a new firmware image is not justified by this evidence. The default installer stays unchanged.
+A read-only comparison with the [reference updater](https://solderless.engineering/utility/js/firmware.js?v=3) found matching page/chunk/finalization handling, including short last pages. The reference waits for a start response, disconnect or three-second timeout before closing; the local helper closed immediately after the start write/flush. A controlled retry keeps the exact binary and packet sequence, changing only this wait. The controlled retry completed at 01:15 EDT with the same 29 pages / 505 chunks and binary hash. Keeping the session open observed an expected device disconnect about 116 ms after start. The user then confirmed power-on; runtime reports `bonsai-8-0.4.9`, all five song entries match, and all eight metadata / 51 representative audio sectors pass. Private evidence: `flash-20261020-011459.jsonl` and `bonsai-0.4.9-postflash.json`. This single retry does not establish the first failure cause: retransfer and restart were both repeated. The default installer stays unchanged pending playback testing.
+
+The user then reported stuttering on tempo changes again. A read-only snapshot
+showed 343 cumulative missing-plan underruns on B, no source underruns or storage
+errors, but A was already paused and both speeds had returned to 1x. This is a
+listening failure with supporting cumulative diagnostics, not a stable tempo
+measurement. A subsequent 50-second unchanged observation added no underruns.
+Private evidence: `bonsai-0.4.9-user-stutter-20261020.json` and
+`bonsai-0.4.9-stutter-repeat-gesture.json`. 0.4.9 remains withheld.
 
 ## 0.4.8 tempo-performance candidate — October 20, 2026
 
