@@ -1,19 +1,55 @@
 # Physical test — 2026-09-30
 
-## Built 0.4.11 performance candidate — October 20, 2026
+## 0.4.11 hardware tempo failure — October 20, 2026
 
-0.4.10 remains a confirmed hardware tempo failure. The next candidate batches
+**0.4.11 failed the stable single-changed-deck tempo test.** This candidate batches
 settled stretched playback, stops repeated blocked-state checks, calculates
 retention once per callback, and uses packed stereo correlation with exact
 rolling energy. Reference quantization can change near-tied grain choices; the
 search geometry and quality gates are unchanged. Thread runtime profiling is
-included for the next physical measurement.
+included in the physical measurements below.
 
 Nine C sanitizer suites, 59 Python tests, 114 host audio screens, 600 simulated
 seconds and 11,352 exact renderer comparisons pass. The application is 120,892
 bytes; RAM is 254,756 / 262,144 bytes. SHA-256:
 `8b22168c1ae802cba09a1a1b516cfbae401a299c9590b9178cc9386a7bf7da8b`.
-No 0.4.11 flash, runtime, preservation or physical playback pass is claimed.
+The application-only flash completed at 02:05 EDT: all 30 pages / 531 chunks
+and both CRC-valid finalizations were acknowledged. The updater waited and
+observed the expected USB disconnect about 118 ms after the start command.
+Private evidence: `flash-20261020-020539.jsonl`. This is not application-flash
+readback. After delayed USB enumeration, normal runtime reports `bonsai-8-0.4.11`.
+All five song entries match the fresh preflash listing; all eight metadata sectors
+and 51 representative audio-sector hashes match the reference. This does not
+establish full audio readback. Evidence: `bonsai-0.4.11-postflash.json`.
+The stable 20.071-second unity-tempo baseline passed with both decks playing,
+all eight gains fixed at 256, no mutes and USB capture off. There were no new
+plan/source underruns, monitored errors or clips, and no control changes.
+Both decks advanced 481,664 source frames; mean callback time was 1,693.02
+microseconds. Scheduler-attributed shares were 31.5% audio, 29.0% storage,
+8.4% main and 28.1% idle; these shares include interrupt attribution.
+Evidence: `bonsai-0.4.11-eight-dry.json`.
+
+A subsequent stable **20.034-second** run with A at 1x and B at 66846/65536
+(~1.02x) failed. Both decks stayed playing, all eight gains stayed at 256, no
+controls changed and USB capture was off. B accumulated **131 new missing-plan
+underruns**; A added none. Both source-underrun counters and all monitored
+error/clipping deltas stayed zero. A advanced 481,024 native frames while B
+advanced only 140,057. Mean audio callback time was 2,241.32 microseconds.
+
+Planner work totaled 7,252,320 charged units in 7,358 calls. Elapsed slice time
+was 5,735,912 microseconds, including 2,110,042 microseconds of audio preemption.
+The remaining 3,625,870 microseconds also include controls, USB and other
+interrupts; this is not exclusive planner CPU time. Scheduler-attributed shares
+were 41.4% audio, 34.6% storage, 8.2% main and 12.7% idle. These include interrupt
+attribution and do not establish planner-only utilization or deadline headroom.
+Evidence: `bonsai-0.4.11-eight-tempo-b.json`.
+
+The lower callback mean and passing host checks did not resolve the hardware
+failure. Investigation now targets deadlines using the actual song material
+before another build. Changed-tempo USB/mirroring, listening and sustained
+recording remain open gates. The default installer stays on 0.4.6; do not promote
+0.4.11 as verified.
+All three GitHub CI jobs passed for source `a6c60ef` (run 39377562628).
 See [the candidate report](docs/sync-validation-0411.md).
 
 
